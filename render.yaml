@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: svts
+    runtime: docker
+    plan: starter        # persistent disks require a paid plan
+    envVars:
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SETUP_TOKEN
+        generateValue: true   # shown in the Render dashboard; needed once for first-admin setup
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/svts.sqlite
+    disk:
+      name: svts-data
+      mountPath: /data
+      sizeGB: 1
