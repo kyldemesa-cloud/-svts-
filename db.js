@@ -133,14 +133,18 @@ ensureMigrations();
 
 
 function ensureDefaultAdminAccount() {
-  const email = 'admin@svts.local';
-  const existing = db.prepare('SELECT id, role, status FROM users WHERE lower(email)=lower(?)').get(email);
-  if (existing) return;
-  const passwordHash = bcrypt.hashSync('Admin@12345', 12);
-  db.prepare(`
-    INSERT INTO users (full_name, email, password_hash, role, status, verified_at)
-    VALUES (?, ?, ?, 'admin', 'verified', CURRENT_TIMESTAMP)
-  `).run('System Administrator', email, passwordHash);
+  try {
+    const email = 'admin@svts.local';
+    const existing = db.prepare('SELECT id, role, status FROM users WHERE lower(email)=lower(?)').get(email);
+    if (existing) return;
+    const passwordHash = bcrypt.hashSync('Admin@12345', 12);
+    db.prepare(`
+      INSERT INTO users (full_name, email, password_hash, role, status, verified_at)
+      VALUES (?, ?, ?, 'admin', 'verified', CURRENT_TIMESTAMP)
+    `).run('System Administrator', email, passwordHash);
+  } catch (e) {
+    console.error('Unable to ensure default admin account:', e.message);
+  }
 }
 
 ensureDefaultAdminAccount();
