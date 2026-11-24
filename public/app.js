@@ -73,10 +73,14 @@ function navItems() {
 }
 
 function showApp() {
-  $('#auth')?.classList.add('hidden');
+  $('#landing')?.classList.add('hidden');
+  $('#authModal')?.classList.add('hidden');
   $('#app')?.classList.remove('hidden');
   if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
-  if ($('#userRole')) $('#userRole').textContent = me?.role === 'admin' ? 'Verified administrator' : 'Teacher';
+  if ($('#userRole')) {
+    const labels = { admin: 'Verified administrator', teacher: 'Teacher', adviser: 'Adviser', student: 'Student' };
+    $('#userRole').textContent = labels[me?.role] || me?.role || 'User';
+  }
   if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
   renderNav();
 }
@@ -86,7 +90,7 @@ function renderNav() {
   nav.innerHTML = navItems().map(([v, ico, t]) => `<button class="nav-btn ${view === v ? 'active' : ''}" data-view="${v}"><span>${ico}</span>${t}</button>`).join('');
 }
 function showGate() {
-  $('#auth')?.classList.remove('hidden');
+  $('#landing')?.classList.remove('hidden');
   $('#app')?.classList.add('hidden');
 }
 
@@ -978,17 +982,76 @@ function switchAuthTab(tab) {
   $('#registerForm')?.classList.toggle('hidden', normalized !== 'register');
 }
 
+function openAuthModal(tab = 'login') {
+  $('#authModal')?.classList.remove('hidden');
+  $('#authModal')?.setAttribute('aria-hidden', 'false');
+  if (tab === 'setup') {
+    $('#setupForm')?.classList.remove('hidden');
+    $('#loginForm')?.classList.add('hidden');
+    $('#studentRegisterForm')?.classList.add('hidden');
+    $('#registerForm')?.classList.add('hidden');
+    $('.auth-modal-card .tabs')?.classList.add('hidden');
+  } else {
+    if ($('#setupForm')) $('#setupForm').classList.add('hidden');
+    $('.auth-modal-card .tabs')?.classList.remove('hidden');
+    switchAuthTab(tab);
+  }
+}
+
+function closeAuthModal() {
+  $('#authModal')?.classList.add('hidden');
+  $('#authModal')?.setAttribute('aria-hidden', 'true');
+}
+
 function showGate() {
-  $('#auth')?.classList.remove('hidden');
+  $('#landing')?.classList.remove('hidden');
   $('#app')?.classList.add('hidden');
 }
 function showApp() {
-  $('#auth')?.classList.add('hidden');
+  $('#landing')?.classList.add('hidden');
+  closeAuthModal();
   $('#app')?.classList.remove('hidden');
   if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
-  if ($('#userRole')) $('#userRole').textContent = me?.role === 'admin' ? 'Verified administrator' : 'Teacher';
+  if ($('#userRole')) {
+    const labels = { admin: 'Verified administrator', teacher: 'Teacher', adviser: 'Adviser', student: 'Student' };
+    $('#userRole').textContent = labels[me?.role] || me?.role || 'User';
+  }
   if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
   renderNav();
+}
+
+function renderLookupResult(data) {
+  const el = $('#publicLookupResult');
+  if (!el) return;
+  if (!data) { el.innerHTML = ''; return; }
+  const s = data.student || {};
+  const t = data.totals || {};
+  const rows = (data.violations || []).map(v => `
+    <tr>
+      <td>${esc(v.case_number || '—')}</td>
+      <td>${esc(fmtDate((v.incident_date || '').slice(0,10)))}</td>
+      <td>${esc(v.offense || 'Violation')}</td>
+      <td>${badge(v.status || 'Reported')}</td>
+      <td>${esc(v.service_status || 'none')}</td>
+      <td>${Number(v.completed_hours || 0)}/${Number(v.required_hours || 0)} hrs</td>
+    </tr>`).join('');
+  el.innerHTML = `
+    <div class="lookup-card">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
+        <div>
+          <h3 style="margin:0 0 4px;color:#163a63">${esc(s.name || 'Student')}</h3>
+          <div class="muted tiny">LRN: ${esc(s.student_number || '—')} · Grade ${esc(s.grade_level || '—')} · ${esc(s.section_name || '—')} ${s.school_year ? '· ' + esc(s.school_year) : ''}</div>
+        </div>
+        <div class="tiny muted">Public record summary (no login required)</div>
+      </div>
+      <div class="lookup-grid">
+        <div class="lookup-item"><span>Total cases</span><strong>${Number(t.cases || 0)}</strong></div>
+        <div class="lookup-item"><span>Open cases</span><strong>${Number(t.open || 0)}</strong></div>
+        <div class="lookup-item"><span>CS pending</span><strong>${Number(t.servicePending || 0)}</strong></div>
+        <div class="lookup-item"><span>Hours completed</span><strong>${Number(t.completed || 0)}/${Number(t.required || 0)}</strong></div>
+      </div>
+      <div style="margin-top:14px">${rows ? table(['Case','Date','Offense','Status','Service','Hours'], rows) : '<div class="note" style="margin:0">No violation records found for this student.</div>'}</div>
+    </div>`;
 }
 
 function attachAuthHandlers() {
@@ -1034,24 +1097,37 @@ function attachAuthHandlers() {
 async function init() {
   attachClickHandlers();
   attachAuthHandlers();
+
+  $$('[data-open-auth]').forEach(btn => btn.addEventListener('click', () => openAuthModal(btn.dataset.openAuth || 'login')));
+  $$('[data-close-auth]').forEach(btn => btn.addEventListener('click', closeAuthModal));
+  $('#publicLookupForm')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const lrn = String(new FormData(e.target).get('lrn') || '').trim();
+    if (!lrn) { toast('Enter an LRN/student number.'); return; }
+    const out = $('#publicLookupResult');
+    if (out) out.innerHTML = '<div class="note">Searching student record...</div>';
+    try {
+      const data = await get('/api/public/student-lookup?lrn=' + encodeURIComponent(lrn));
+      renderLookupResult(data);
+    } catch (err) {
+      if (out) out.innerHTML = `<div class="note" style="border-color:#f2caca;background:#fff5f5;color:#8b2f2f">${esc(err.message || 'Unable to find that record.')}</div>`;
+    }
+  });
+
   try {
     const status = await get('/api/auth/setup-status');
     if (!status.configured) {
-      $('#setupForm')?.classList.remove('hidden');
-      $('#loginForm')?.classList.add('hidden');
-      $('#studentRegisterForm')?.classList.add('hidden');
-      $('#registerForm')?.classList.add('hidden');
-      const tabs = $('.auth-card .tabs, .tabs'); if (tabs) tabs.classList.add('hidden');
+      showGate();
+      openAuthModal('setup');
       const msgEl = $('#authMsg'); if (msgEl) msgEl.textContent = 'Create the first administrator account to initialize the system.';
-    } else {
-      $('#setupForm')?.classList.add('hidden');
-      const tabs = $('.auth-card .tabs, .tabs'); if (tabs) tabs.classList.remove('hidden');
-      switchAuthTab('login');
-      try {
-        const session = await get('/api/me');
-        if (session?.user) { me = session.user; await loadData(); showApp(); await go('dashboard'); return; }
-      } catch (_) {}
+      return;
     }
+    $('#setupForm')?.classList.add('hidden');
+    switchAuthTab('login');
+    try {
+      const session = await get('/api/me');
+      if (session?.user) { me = session.user; await loadData(); showApp(); await go('dashboard'); return; }
+    } catch (_) {}
   } catch (e) {
     console.error(e);
     const msgEl = $('#authMsg'); if (msgEl) msgEl.textContent = 'Unable to reach the server. Check that the backend is running.';
