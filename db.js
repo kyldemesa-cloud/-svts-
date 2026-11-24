@@ -2,7 +2,9 @@ const Database = require('better-sqlite3');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const db = new Database(process.env.DB_PATH || path.join(__dirname, 'svts.sqlite'));
+const dbPath = process.env.DB_PATH || path.join(__dirname, 'svts.sqlite');
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
 db.pragma('journal_mode = WAL');
 db.exec(fs.readFileSync(path.join(__dirname, 'database', 'schema.sql'), 'utf8'));
