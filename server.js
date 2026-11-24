@@ -171,9 +171,62 @@ function passwordStrong(pw) {
   return typeof pw === 'string' && pw.length >= 10;
 }
 
+const STAFF_REQUEST_ROLES = ['admin', 'guidance_counselor', 'class_adviser'];
+const STAFF_ROLES = ['admin', 'teacher', 'guidance_counselor', 'class_adviser'];
+const SECTION_STAFF_ROLES = ['teacher', 'guidance_counselor', 'class_adviser'];
+
+function roleLabel(role) {
+  return {
+    admin: 'Administrator',
+    teacher: 'Teacher',
+    guidance_counselor: 'Guidance Counselor',
+    class_adviser: 'Class Adviser',
+    student: 'Student'
+  }[role] || role;
+}
+
+function isSectionStaffRole(role) {
+  return SECTION_STAFF_ROLES.includes(role);
+}
+
+function getAssignedClassAdviserForSection(sectionId, excludeUserId = null) {
+  if (!sectionId) return null;
+  return excludeUserId
+    ? db.prepare(`
+        SELECT u.id, u.full_name
+        FROM teacher_sections ts
+        JOIN users u ON u.id = ts.teacher_id
+        WHERE ts.section_id = ? AND u.role = 'class_adviser' AND u.id <> ?
+        LIMIT 1
+      `).get(sectionId, excludeUserId)
+    : db.prepare(`
+        SELECT u.id, u.full_name
+        FROM teacher_sections ts
+        JOIN users u ON u.id = ts.teacher_id
+        WHERE ts.section_id = ? AND u.role = 'class_adviser'
+        LIMIT 1
+      `).get(sectionId);
+}
+
+function validateClassAdviserSectionAssignment(sectionId, excludeUserId = null) {
+  const sid = Number(sectionId);
+  if (!sid) return { error: 'Class Adviser accounts must be assigned to exactly one section.' };
+  const section = db.prepare(`
+    SELECT s.id, s.grade_level, s.section_name, s.school_year_id, y.label AS school_year
+    FROM sections s JOIN school_years y ON y.id = s.school_year_id
+    WHERE s.id = ?
+  `).get(sid);
+  if (!section) return { error: 'Selected section is invalid.' };
+  const existing = getAssignedClassAdviserForSection(sid, excludeUserId);
+  if (existing) {
+    return { error: `This section already has a Class Adviser account for ${section.school_year} (${section.grade_level}-${section.section_name}: ${existing.full_name}).` };
+  }
+  return { section };
+}
+
 function requireStaffEmailRole(email, role) {
-  if (!['admin', 'teacher'].includes(role)) return 'Invalid staff role.';
-  if (!email || !isEmail(email)) return 'A valid email is required for admin/teacher accounts.';
+  if (!STAFF_ROLES.includes(role)) return 'Invalid staff role.';
+  if (!email || !isEmail(email)) return 'A valid email is required for staff accounts.';
   return null;
 }
 
@@ -437,47 +490,111 @@ app.post('/api/auth/register-admin', async (req, res) => {
     const name = clean(req.body.name, 100);
     const email = clean(req.body.email, 160).toLowerCase();
     const password = String(req.body.password || '');
+    const requestedRole = clean(req.body.role || 'admin', 40);
+    const role = requestedRole === 'administrator' ? 'admin' : requestedRole;
     if (!name || !isEmail(email) || !passwordStrong(password)) {
       return res.status(400).json({ error: 'Name, valid email, and password of at least 10 characters are required.' });
     }
+    if (!STAFF_REQUEST_ROLES.includes(role)) {
+      return res.status(400).json({ error: 'Please select a valid account type to request (Administrator, Guidance Counselor, or Class Adviser).' });
+    }
     if (!emailUnique(email)) return res.status(409).json({ error: 'Email already registered.' });
+
+    let requestedSectionId = null;
+    if (role === 'class_adviser') {
+      const check = validateClassAdviserSectionAssignment(req.body.section_id || req.body.sectionId);
+      if (check.error) return res.status(400).json({ error: check.error });
+      requestedSectionId = Number(check.section.id);
+    }
     const hash = await bcrypt.hash(password, 12);
-    const r = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,'admin','pending')")
-      .run(name, email, hash);
-    audit({ id: r.lastInsertRowid }, 'Admin registration pending', 'user', r.lastInsertRowid);
-    res.json({ message: 'Registration submitted. A verified administrator must approve your account before sign-in.' });
+    const r = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status,requested_section_id) VALUES(?,?,?,?, 'pending', ?)")
+      .run(name, email, hash, role, requestedSectionId);
+    audit({ id: r.lastInsertRowid }, `${roleLabel(role)} account request pending`, 'user', r.lastInsertRowid, requestedSectionId ? `${role};section:${requestedSectionId}` : role);
+    const suffix = requestedSectionId ? ' for the selected section' : '';
+    res.json({ message: `${roleLabel(role)} account request${suffix} submitted. A verified administrator must approve your account before sign-in.` });
   } catch (e) {
     res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Email already registered.' : 'Registration failed.' });
   }
 });
 
-// Student sign-up (no email required)
+// Student sign-up (no email required). Uses admin-configured academic placement options.
 app.post('/api/auth/register', async (req, res) => {
   try {
     const name = clean(req.body.name || req.body.full_name, 100);
     const password = String(req.body.password || '');
-    const studentNo = clean(req.body.student_no || req.body.studentNumber, 40);
-    // Standard student sign-up ignores any submitted email.
+    const studentNoRaw = clean(req.body.student_no || req.body.studentNumber, 40);
+    const gradeLevel = clean(req.body.grade_level || req.body.gradeLevel, 20);
+    const schoolYearId = Number(req.body.school_year_id || req.body.schoolYearId || 0);
+    const sectionId = Number(req.body.section_id || req.body.sectionId || 0);
+
     if (!name || !passwordStrong(password)) {
       return res.status(400).json({ error: 'Name and password of at least 10 characters are required.' });
     }
+    if (!/^(7|8|9|10|11|12)$/.test(gradeLevel)) {
+      return res.status(400).json({ error: 'Please select a valid grade level.' });
+    }
+    if (!schoolYearId || !sectionId) {
+      return res.status(400).json({ error: 'Please select your school year and section.' });
+    }
+
+    const section = db.prepare(`
+      SELECT s.*, COALESCE(NULLIF(s.school_year,''), y.label) AS school_year_label
+      FROM sections s JOIN school_years y ON y.id=s.school_year_id
+      WHERE s.id=? AND s.school_year_id=? AND y.is_active=1
+    `).get(sectionId, schoolYearId);
+    if (!section) {
+      return res.status(400).json({ error: 'Selected section/school year is invalid or not available. Please contact the administrator.' });
+    }
+    if (String(section.grade_level) !== String(gradeLevel)) {
+      return res.status(400).json({ error: 'Selected section does not match the selected grade level.' });
+    }
+
+    const requestedTrackId = req.body.track_id ?? req.body.trackId ?? section.track_id;
+    const requestedStrandId = req.body.strand_id ?? req.body.strandId ?? section.strand_id;
+    const ts = validateTrackStrandForGrade(gradeLevel, requestedTrackId, requestedStrandId);
+    if (ts.error) return res.status(400).json({ error: ts.error });
+
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    const firstName = parts.slice(0, -1).join(' ') || parts[0] || name;
+    const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
     const hash = await bcrypt.hash(password, 12);
+
     const tx = db.transaction(() => {
       const u = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,'student','verified')")
         .run(name, null, hash);
       const userId = Number(u.lastInsertRowid);
-      if (studentNo) {
-        db.prepare('INSERT INTO student_profiles(user_id, student_no) VALUES (?,?)').run(userId, studentNo);
-      } else {
-        db.prepare('INSERT INTO student_profiles(user_id) VALUES (?)').run(userId);
+      const studentNumber = studentNoRaw || null;
+
+      let studentId;
+      try {
+        const r = db.prepare(`
+          INSERT INTO students(student_number,first_name,last_name,grade_level,section_id,track_id,strand_id,user_id,guardian_name,guardian_contact,active)
+          VALUES (?,?,?,?,?,?,?,?,?,?,1)
+        `).run(studentNumber, firstName, lastName, gradeLevel, sectionId, ts.track_id, ts.strand_id, userId, '', '');
+        studentId = Number(r.lastInsertRowid);
+      } catch (err) {
+        if (err && /UNIQUE/i.test(String(err.message)) && studentNoRaw) {
+          throw new Error('Student number already exists.');
+        }
+        throw err;
       }
-      audit({ id: userId }, 'Student registration', 'user', userId);
+
+      db.prepare(`
+        INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact)
+        VALUES (?,?,?,?,?,?,?,?)
+      `).run(userId, studentNumber, gradeLevel, sectionId, ts.track_id, ts.strand_id, '', '');
+
+      audit({ id: userId }, 'Student registration', 'user', userId, `student:${studentId};section:${sectionId};sy:${schoolYearId}`);
       return userId;
     });
+
     const id = tx();
-    res.json({ id, message: 'Student account created.' });
+    res.json({ id, message: 'Student account created. You can sign in now.' });
   } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Account/profile already exists.' : 'Registration failed.' });
+    const msg = String(e && e.message || '');
+    if (msg.includes('Student number already exists')) return res.status(409).json({ error: msg });
+    if (/UNIQUE/i.test(msg)) return res.status(409).json({ error: 'An account or student record with these details already exists.' });
+    res.status(400).json({ error: msg || 'Registration failed.' });
   }
 });
 
@@ -562,16 +679,14 @@ app.get('/api/me', auth, (req, res) => {
 
 app.get('/api/dashboard', auth, verified, (req, res) => {
   const isAdmin = req.session.user.role === 'admin';
+  const isStaffScoped = isSectionStaffRole(req.session.user.role);
   const sectionIds = isAdmin
     ? null
-    : db.prepare('SELECT section_id FROM teacher_sections WHERE teacher_id=?')
-      .all(req.session.user.id)
-      .map(x => x.section_id);
-
-  const sectionFilter = sectionIds?.length
-    ? `WHERE s.section_id IN (${sectionIds.map(() => '?').join(',')})`
-    : 'WHERE 1=0';
-  const params = sectionIds || [];
+    : (isStaffScoped
+      ? db.prepare('SELECT section_id FROM teacher_sections WHERE teacher_id=?').all(req.session.user.id).map(x => x.section_id)
+      : []);
+  const sectionFilter = isAdmin ? '' : (sectionIds.length ? `WHERE s.section_id IN (${sectionIds.map(() => '?').join(',')})` : 'WHERE 1=0');
+  const params = isAdmin ? [] : sectionIds;
 
   const students = isAdmin
     ? db.prepare('SELECT COUNT(*) n FROM students WHERE active=1').get().n
@@ -595,34 +710,53 @@ app.get('/api/dashboard', auth, verified, (req, res) => {
 
 app.get('/api/admin/pending', auth, admin, (req, res) => {
   res.json(
-    db.prepare("SELECT id,full_name,email,created_at FROM users WHERE role='admin' AND status='pending' ORDER BY created_at").all()
+    db.prepare(`
+      SELECT u.id,u.full_name,u.email,u.role,u.created_at,u.requested_section_id,
+             s.grade_level AS requested_section_grade, s.section_name AS requested_section_name,
+             y.label AS requested_school_year
+      FROM users u
+      LEFT JOIN sections s ON s.id = u.requested_section_id
+      LEFT JOIN school_years y ON y.id = s.school_year_id
+      WHERE u.role IN ('admin','guidance_counselor','class_adviser') AND u.status='pending'
+      ORDER BY u.created_at ASC, u.role ASC, u.full_name ASC
+    `).all()
   );
 });
 
-app.post('/api/admin/verify/:id', auth, admin, (req, res) => {
+function handlePendingStaffApproval(req, res, approve) {
   const id = Number(req.params.id);
   if (id === req.session.user.id) {
-    return res.status(400).json({ error: 'You cannot approve your own account.' });
+    return res.status(400).json({ error: 'You cannot approve or reject your own account request.' });
   }
-
-  const target = db.prepare("SELECT id FROM users WHERE id=? AND role='admin' AND status='pending'").get(id);
+  const target = db.prepare("SELECT id, role, requested_section_id FROM users WHERE id=? AND role IN ('admin','guidance_counselor','class_adviser') AND status='pending'").get(id);
   if (!target) {
-    return res.status(404).json({ error: 'Pending account not found' });
+    return res.status(404).json({ error: 'Pending account request not found.' });
   }
 
-  db.prepare("UPDATE users SET status='verified',verified_by=?,verified_at=CURRENT_TIMESTAMP WHERE id=?")
-    .run(req.session.user.id, id);
-  audit(req.session.user, 'Verify administrator', 'user', id);
-  res.json({ ok: true });
-});
+  if (approve && target.role === 'class_adviser') {
+    if (!target.requested_section_id) {
+      return res.status(400).json({ error: 'This Class Adviser request has no assigned section. Reject it and ask the requester to submit a new request with a section selected.' });
+    }
+    const check = validateClassAdviserSectionAssignment(target.requested_section_id, id);
+    if (check.error) return res.status(409).json({ error: check.error });
+  }
 
-app.post('/api/admin/reject/:id', auth, admin, (req, res) => {
-  const id = Number(req.params.id);
-  db.prepare("UPDATE users SET status='rejected',verified_by=?,verified_at=CURRENT_TIMESTAMP WHERE id=? AND role='admin' AND status='pending'")
-    .run(req.session.user.id, id);
-  audit(req.session.user, 'Reject administrator', 'user', id);
-  res.json({ ok: true });
-});
+  const status = approve ? 'verified' : 'rejected';
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE users SET status=?,verified_by=?,verified_at=CURRENT_TIMESTAMP WHERE id=?")
+      .run(status, req.session.user.id, id);
+    if (approve && target.role === 'class_adviser' && target.requested_section_id) {
+      db.prepare('INSERT OR IGNORE INTO teacher_sections(teacher_id,section_id) VALUES(?,?)').run(id, Number(target.requested_section_id));
+    }
+  });
+  tx();
+  audit(req.session.user, `${approve ? 'Approve' : 'Reject'} ${roleLabel(target.role)} request`, 'user', id, `${target.role}:${status}${target.requested_section_id ? `;section:${target.requested_section_id}` : ''}`);
+  res.json({ ok: true, status, role: target.role });
+}
+
+app.post('/api/admin/verify/:id', auth, admin, (req, res) => handlePendingStaffApproval(req, res, true));
+app.post('/api/admin/approve/:id', auth, admin, (req, res) => handlePendingStaffApproval(req, res, true));
+app.post('/api/admin/reject/:id', auth, admin, (req, res) => handlePendingStaffApproval(req, res, false));
 
 app.get('/api/users', auth, admin, (req, res) => {
   res.json(db.prepare('SELECT id,full_name,email,role,status,created_at FROM users ORDER BY role,full_name').all());
@@ -633,25 +767,26 @@ app.post('/api/teachers', auth, admin, async (req, res) => {
     const name = clean(req.body.name, 100);
     const email = clean(req.body.email, 160).toLowerCase();
     const password = String(req.body.password || '');
-    const sections = Array.isArray(req.body.sections) ? req.body.sections : [];
+    const rawSections = Array.isArray(req.body.sections) ? req.body.sections : (req.body.section_id ? [req.body.section_id] : (req.body.sectionId ? [req.body.sectionId] : []));
+    const sectionIds = rawSections.map(x => Number(x)).filter(Number.isFinite);
     const errRole = requireStaffEmailRole(email, 'teacher');
     if (!name || errRole) return res.status(400).json({ error: errRole || 'Name is required.' });
     if (!passwordStrong(password)) return res.status(400).json({ error: 'Password must be at least 10 characters.' });
+    if (sectionIds.length !== 1) return res.status(400).json({ error: 'Teacher accounts must be assigned to exactly one section.' });
     if (!emailUnique(email)) return res.status(409).json({ error: 'Email already registered.' });
+    if (!db.prepare('SELECT 1 FROM sections WHERE id=?').get(sectionIds[0])) return res.status(400).json({ error: 'Selected section is invalid.' });
 
     const hash = await bcrypt.hash(password, 12);
     const r = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,'teacher','verified')")
       .run(name, email, hash);
     const id = Number(r.lastInsertRowid);
 
-    const assign = db.prepare('INSERT OR IGNORE INTO teacher_sections(teacher_id,section_id) VALUES(?,?)');
-    const tx = db.transaction(() => { sections.forEach(s => assign.run(id, Number(s))); });
-    tx();
+    db.prepare('INSERT OR IGNORE INTO teacher_sections(teacher_id,section_id) VALUES(?,?)').run(id, sectionIds[0]);
 
-    audit(req.session.user, 'Create teacher', 'user', id);
+    audit(req.session.user, 'Create teacher', 'user', id, `section:${sectionIds[0]}`);
     res.json({ id });
   } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Email already registered.' : 'Unable to create teacher. Check email and section assignments.' });
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Email already registered.' : 'Unable to create teacher. Check email and section assignment.' });
   }
 });
 
@@ -682,18 +817,35 @@ app.get('/api/teachers/:id/sections', auth, admin, (req, res) => {
 
 app.put('/api/teachers/:id/sections', auth, admin, (req, res) => {
   const id = Number(req.params.id);
-  if (!db.prepare("SELECT 1 FROM users WHERE id=? AND role='teacher'").get(id)) {
-    return res.status(404).json({ error: 'Teacher not found' });
+  const user = db.prepare("SELECT id, role FROM users WHERE id=?").get(id);
+  if (!user || !isSectionStaffRole(user.role)) {
+    return res.status(404).json({ error: 'Staff user not found.' });
   }
 
   try {
+    const rawSections = Array.isArray(req.body.sections) ? req.body.sections : (req.body.section_id ? [req.body.section_id] : (req.body.sectionId ? [req.body.sectionId] : []));
+    const sectionIds = rawSections.map(x => Number(x)).filter(Number.isFinite);
+    if ((user.role === 'teacher' || user.role === 'class_adviser') && sectionIds.length !== 1) {
+      return res.status(400).json({ error: `${roleLabel(user.role)} accounts must be assigned to exactly one section.` });
+    }
+    if (user.role !== 'teacher' && user.role !== 'class_adviser' && sectionIds.length < 1) {
+      return res.status(400).json({ error: 'Please select at least one section.' });
+    }
+    if (sectionIds.some(sid => !db.prepare('SELECT 1 FROM sections WHERE id=?').get(sid))) {
+      return res.status(400).json({ error: 'One or more selected sections are invalid.' });
+    }
+    if (user.role === 'class_adviser') {
+      const check = validateClassAdviserSectionAssignment(sectionIds[0], id);
+      if (check.error) return res.status(409).json({ error: check.error });
+    }
+
     const ins = db.prepare('INSERT OR IGNORE INTO teacher_sections(teacher_id,section_id) VALUES(?,?)');
     db.transaction(() => {
       db.prepare('DELETE FROM teacher_sections WHERE teacher_id=?').run(id);
-      (req.body.sections || []).forEach(x => ins.run(id, Number(x)));
+      sectionIds.forEach(x => ins.run(id, x));
     })();
-    audit(req.session.user, 'Assign teacher sections', 'user', id);
-    res.json({ ok: true });
+    audit(req.session.user, 'Assign staff sections', 'user', id, sectionIds.join(','));
+    res.json({ ok: true, section_ids: sectionIds });
   } catch (e) {
     res.status(400).json({ error: 'Invalid section assignment.' });
   }
@@ -833,7 +985,7 @@ app.get('/api/students', auth, verified, (req, res) => {
     p.push(Number(year));
   }
 
-  if (req.session.user.role === 'teacher') {
+  if (isSectionStaffRole(req.session.user.role)) {
     q += ` AND st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)`;
     p.push(req.session.user.id);
   }
@@ -1021,7 +1173,7 @@ app.get('/api/community-service', auth, verified, (req, res) => {
   let q = 'SELECT cs.*,st.first_name,st.last_name,st.grade_level,s.section_name, y.label school_year, v.case_number, COALESCE((SELECT SUM(hours_served) FROM service_attendance a WHERE a.service_id=cs.id),0) hours_completed, COALESCE((SELECT SUM(day_completed) FROM service_attendance a WHERE a.service_id=cs.id),0) days_completed FROM community_service cs JOIN students st ON st.id=cs.student_id JOIN sections s ON s.id=st.section_id JOIN school_years y ON y.id=cs.school_year_id LEFT JOIN violations v ON v.id=cs.violation_id';
   const p = [];
 
-  if (req.session.user.role === 'teacher') {
+  if (isSectionStaffRole(req.session.user.role)) {
     q += ' WHERE st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
     p.push(req.session.user.id);
   }
@@ -1097,11 +1249,12 @@ app.get('/api/community-service/:id/attendance', auth, verified, (req, res) => {
   );
 });
 
-// --- Staff accounts (admin/teacher) ---
+// --- Staff accounts (admin/teacher/guidance counselor/class adviser) ---
 app.post('/api/staff/users', auth, admin, async (req, res) => {
   try {
     const name = clean(req.body.name || req.body.full_name, 100);
-    const role = clean(req.body.role, 20);
+    const requestedRole = clean(req.body.role, 40);
+    const role = requestedRole === 'adviser' ? 'class_adviser' : requestedRole;
     const email = clean(req.body.email, 160).toLowerCase();
     const password = String(req.body.password || '');
     const errRole = requireStaffEmailRole(email, role);
@@ -1109,18 +1262,33 @@ app.post('/api/staff/users', auth, admin, async (req, res) => {
     if (!passwordStrong(password)) return res.status(400).json({ error: 'Password must be at least 10 characters.' });
     if (!emailUnique(email)) return res.status(409).json({ error: 'Email already registered.' });
 
+    const rawSections = Array.isArray(req.body.sections) ? req.body.sections : (req.body.section_id ? [req.body.section_id] : (req.body.sectionId ? [req.body.sectionId] : []));
+    const sectionIds = rawSections.map(x => Number(x)).filter(Number.isFinite);
+    if ((role === 'teacher' || role === 'class_adviser') && sectionIds.length !== 1) {
+      return res.status(400).json({ error: `${roleLabel(role)} accounts must be assigned to exactly one section.` });
+    }
+    if (isSectionStaffRole(role) && role !== 'teacher' && role !== 'class_adviser' && sectionIds.length < 1) {
+      return res.status(400).json({ error: 'Please select at least one section for section-based staff accounts.' });
+    }
+    if (isSectionStaffRole(role) && sectionIds.some(sid => !db.prepare('SELECT 1 FROM sections WHERE id=?').get(sid))) {
+      return res.status(400).json({ error: 'One or more selected sections are invalid.' });
+    }
+    if (role === 'class_adviser') {
+      const check = validateClassAdviserSectionAssignment(sectionIds[0]);
+      if (check.error) return res.status(409).json({ error: check.error });
+    }
+
     const hash = await bcrypt.hash(password, 12);
     const r = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,?, 'verified')")
       .run(name, email, hash, role);
     const id = Number(r.lastInsertRowid);
 
-    if (role === 'teacher' && Array.isArray(req.body.sections)) {
+    if (isSectionStaffRole(role) && sectionIds.length) {
       const assign = db.prepare('INSERT OR IGNORE INTO teacher_sections(teacher_id,section_id) VALUES(?,?)');
-      const tx = db.transaction(() => { req.body.sections.forEach(s => assign.run(id, Number(s))); });
-      tx();
+      db.transaction(() => { sectionIds.forEach(s => assign.run(id, s)); })();
     }
 
-    audit(req.session.user, 'Create staff user', 'user', id, role);
+    audit(req.session.user, 'Create staff user', 'user', id, sectionIds.length ? `${role};sections:${sectionIds.join(',')}` : role);
     res.json({ id, role, email });
   } catch (e) {
     res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Email already registered.' : 'Unable to create staff user.' });
@@ -1502,7 +1670,7 @@ app.get('/api/reports', auth, admin, (req, res) => {
   let q = 'SELECT o.name offense,o.severity,s.grade_level,s.section_name,COUNT(*) total FROM violations v JOIN students st ON st.id=v.student_id JOIN sections s ON s.id=st.section_id JOIN offense_catalog o ON o.id=v.offense_id';
   const p = [];
 
-  if (req.session.user.role === 'teacher') {
+  if (isSectionStaffRole(req.session.user.role)) {
     q += ' WHERE st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
     p.push(req.session.user.id);
   }

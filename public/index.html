@@ -18,7 +18,6 @@
       </div>
       <nav class="landing-nav">
         <a href="#features">Features</a>
-        <a href="#access">User Access</a>
         <a href="#workflow">Workflow</a>
         <a href="#numbers">By the Numbers</a>
         <a href="#faq">FAQ</a>
@@ -72,16 +71,6 @@
       <div><strong>100%</strong><span>SCHOOL-ALIGNED</span></div>
     </section>
 
-    <section class="landing-search" id="access">
-      <p class="eyebrow search-eyebrow">PUBLIC RECORD SEARCH</p>
-      <h2>Look up your student record</h2>
-      <p class="muted">Enter your exact LRN to view your violation history and community service status. No login required.</p>
-      <form id="publicLookupForm" class="lookup-form">
-        <input name="lrn" placeholder="Enter Learner Reference Number (LRN)" aria-label="Learner Reference Number">
-        <button class="primary" type="submit">Search record</button>
-      </form>
-      <div id="publicLookupResult" class="lookup-result"></div>
-    </section>
 
     <section class="landing-info" id="workflow">
       <div class="info-card">
@@ -110,7 +99,7 @@
         <div class="tabs">
           <button class="tab active" data-auth="login">Sign in</button>
           <button class="tab" data-auth="student-register">Student sign-up</button>
-          <button class="tab" data-auth="register">Admin registration</button>
+          <button class="tab" data-auth="register">Staff account request</button>
         </div>
 
         <form id="setupForm" class="hidden">
@@ -145,6 +134,39 @@
 
         <form id="studentRegisterForm" class="hidden">
           <label>Full name<input name="name" required></label>
+          <label>Grade level
+            <select name="grade_level" id="signupGradeLevel" required>
+              <option value="">Select grade level</option>
+              <option value="7">Grade 7</option>
+              <option value="8">Grade 8</option>
+              <option value="9">Grade 9</option>
+              <option value="10">Grade 10</option>
+              <option value="11">Grade 11</option>
+              <option value="12">Grade 12</option>
+            </select>
+          </label>
+          <label>School year
+            <select name="school_year_id" id="signupSchoolYear" required>
+              <option value="">Select school year</option>
+            </select>
+          </label>
+          <label>Section
+            <select name="section_id" id="signupSection" required>
+              <option value="">Select grade and school year first</option>
+            </select>
+          </label>
+          <div id="signupTrackStrandWrap" class="hidden" style="display:grid;gap:10px">
+            <label>Track (Grade 11-12)
+              <select name="track_id" id="signupTrack">
+                <option value="">Select track (if applicable)</option>
+              </select>
+            </label>
+            <label>Strand (Grade 11-12)
+              <select name="strand_id" id="signupStrand">
+                <option value="">Select strand (if applicable)</option>
+              </select>
+            </label>
+          </div>
           <label>Student number (optional)<input name="student_no" placeholder="If available"></label>
           <label>Password (10+ characters)
             <div class="password-wrap">
@@ -153,11 +175,23 @@
             </div>
           </label>
           <button class="primary full">Create student account</button>
-          <p class="tiny muted">Student sign-up does not require an email address.</p>
+          <p class="tiny muted">Student sign-up does not require an email address. Sections, school years, and Grade 11-12 tracks/strands are set by the administrator.</p>
         </form>
 
         <form id="registerForm" class="hidden">
           <label>Full name<input name="name" required></label>
+          <label>Account type
+            <select name="role" id="staffRequestRole" required>
+              <option value="admin">Administrator</option>
+              <option value="guidance_counselor">Guidance Counselor</option>
+              <option value="class_adviser">Class Adviser</option>
+            </select>
+          </label>
+          <label id="staffRequestSectionWrap" class="hidden">Section (Class Adviser - one account per section/school year)
+            <select name="section_id" id="staffRequestSection">
+              <option value="">Select section</option>
+            </select>
+          </label>
           <label>Email<input type="email" name="email" required></label>
           <label>Password (10+ characters)
             <div class="password-wrap">
@@ -165,8 +199,8 @@
               <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
             </div>
           </label>
-          <button class="primary full">Request administrator account</button>
-          <p class="tiny muted">Admin/teacher accounts require email. Your admin account must be verified by an existing administrator before sign-in.</p>
+          <button class="primary full">Request staff account</button>
+          <p class="tiny muted">Administrator, Guidance Counselor, and Class Adviser accounts require email and must be approved by an existing administrator before sign-in. Class Adviser requests are tied to one section/school year (one adviser account per section).</p>
         </form>
 
         <p id="authMsg" class="message"></p>

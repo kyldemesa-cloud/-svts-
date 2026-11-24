@@ -68,7 +68,7 @@ const admin = (req, res, next) =>
     : res.status(403).json({ error: 'Administrator access required' });
 
 const staffOrAdmin = (req, res, next) =>
-  ['admin', 'teacher', 'adviser'].includes(req.session.user?.role) && req.session.user?.status === 'verified'
+  (['admin'].concat(SECTION_STAFF_ROLES)).includes(req.session.user?.role) && req.session.user?.status === 'verified'
     ? next()
     : res.status(403).json({ error: 'Staff or administrator access required' });
 
@@ -83,6 +83,29 @@ const toNum = (v, d = 0) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : d;
 };
+const STAFF_REQUEST_ROLES = ['admin', 'guidance_counselor', 'class_adviser'];
+const SECTION_STAFF_ROLES = ['teacher', 'guidance_counselor', 'class_adviser', 'adviser'];
+const roleLabel = (role) => ({ admin: 'Administrator', teacher: 'Teacher', adviser: 'Adviser', guidance_counselor: 'Guidance Counselor', class_adviser: 'Class Adviser', student: 'Student' }[role] || role);
+const isSectionStaffRole = (role) => SECTION_STAFF_ROLES.includes(role);
+
+async function getAssignedClassAdviserForSection(sectionId, excludeUserId = null) {
+  const params = [sectionId];
+  let sql = `SELECT u.id, u.full_name, u.email, u.role
+             FROM teacher_sections ts
+             JOIN users u ON u.id = ts.teacher_id
+             WHERE ts.section_id = ? AND u.role = 'class_adviser'`;
+  if (excludeUserId) { sql += ' AND u.id <> ?'; params.push(excludeUserId); }
+  return await db.get(sql, params);
+}
+
+async function validateClassAdviserSectionAssignment(role, sectionIds, excludeUserId = null) {
+  const ids = Array.from(new Set((sectionIds || []).map(Number).filter(Boolean)));
+  if (role !== 'class_adviser') return null;
+  if (ids.length !== 1) return 'A class adviser account must be assigned to exactly one section.';
+  const existing = await getAssignedClassAdviserForSection(ids[0], excludeUserId);
+  if (existing) return 'This section already has a class adviser account for its school year. Each section can only have one class adviser account per school year.';
+  return null;
+}
 
 function parseDateInput(v) {
   const s = String(v || '').trim();
@@ -105,7 +128,7 @@ function normalizeDateBounds(from, to) {
 
 async function allowedStudent(req, studentId) {
   if (req.session.user.role === 'admin') return true;
-  if (!['teacher', 'adviser'].includes(req.session.user.role)) return false;
+  if (!isSectionStaffRole(req.session.user.role)) return false;
   const row = await db.get(
     `SELECT 1
      FROM students s
@@ -121,8 +144,9 @@ function passwordStrong(pw) {
 }
 
 function requireStaffEmailRole(email, role) {
-  if (!['admin', 'teacher', 'adviser'].includes(role)) return 'Invalid staff role.';
-  if (!email || !isEmail(email)) return 'A valid email is required for admin, teacher, and adviser accounts.';
+  const allowed = ['admin', 'teacher', 'adviser', 'guidance_counselor', 'class_adviser'];
+  if (!allowed.includes(role)) return 'Invalid staff role.';
+  if (!email || !isEmail(email)) return 'A valid email is required for staff accounts.';
   return null;
 }
 
@@ -382,32 +406,57 @@ function sendXlsx(res, filename, headers, rows) {
 // --- Auth ---
 async function registerStaffRequest(req, res, role) {
   try {
-    if (!['admin', 'adviser'].includes(role)) return res.status(400).json({ error: 'Invalid role request.' });
-    const name = clean(req.body.name, 100);
+    const normalizedRole = role === 'administrator' ? 'admin' : role;
+    if (!STAFF_REQUEST_ROLES.includes(normalizedRole)) {
+      return res.status(400).json({ error: 'Invalid role request. Please select Administrator, Guidance Counselor, or Class Adviser.' });
+    }
+    const name = clean(req.body.name || req.body.full_name, 100);
     const email = clean(req.body.email, 160).toLowerCase();
     const password = String(req.body.password || '');
-    const roleErr = requireStaffEmailRole(email, role);
+    const sectionId = Number(req.body.section_id || req.body.sectionId || req.body.requested_section_id || 0) || null;
+    const roleErr = requireStaffEmailRole(email, normalizedRole);
     if (!name || roleErr || !passwordStrong(password)) {
       return res.status(400).json({ error: roleErr || 'Name, valid email, and password of at least 10 characters are required.' });
     }
     if (!(await emailUnique(email))) return res.status(409).json({ error: 'Email already registered.' });
+
+    let requestedSectionId = null;
+    if (normalizedRole === 'class_adviser') {
+      if (!sectionId) return res.status(400).json({ error: 'Please select the section this class adviser account will handle.' });
+      const section = await db.get(
+        `SELECT s.id, s.name, s.grade_level, sy.id AS school_year_id, sy.name AS school_year_name, sy.is_active
+         FROM sections s JOIN school_years sy ON sy.id = s.school_year_id
+         WHERE s.id=?`,
+        [sectionId]
+      );
+      if (!section) return res.status(400).json({ error: 'Selected section was not found. Please choose a valid section.' });
+      if (!section.is_active) return res.status(400).json({ error: 'The selected section is not in an active school year. Please choose a section in an active school year.' });
+      const adviserErr = await validateClassAdviserSectionAssignment(normalizedRole, [sectionId]);
+      if (adviserErr) return res.status(409).json({ error: adviserErr });
+      requestedSectionId = section.id;
+    }
+
     const hash = await bcrypt.hash(password, 12);
     const r = await db.run(
-      "INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,?, 'pending') RETURNING id",
-      [name, email, hash, role]
+      "INSERT INTO users(full_name,email,password_hash,role,status,requested_section_id) VALUES(?,?,?,?, 'pending', ?) RETURNING id",
+      [name, email, hash, normalizedRole, requestedSectionId]
     );
-    await audit({ id: r.lastInsertRowid }, `${role} registration pending`, 'user', r.lastInsertRowid);
-    res.json({ message: `Registration submitted. A verified administrator must approve your ${role} account before sign-in.` });
+    await audit({ id: r.lastInsertRowid }, `${roleLabel(normalizedRole)} registration pending`, 'user', r.lastInsertRowid);
+    res.json({ message: `Registration submitted. A verified administrator must approve your ${roleLabel(normalizedRole).toLowerCase()} account before sign-in.` });
   } catch (e) {
     const msg = String(e.message || '');
-    res.status(400).json({ error: msg.toLower().includes('unique') || msg.toLowerCase().includes('duplicate') ? 'Email already registered.' : 'Registration failed.' });
+    res.status(400).json({ error: msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('duplicate') ? 'Email already registered.' : 'Registration failed.' });
   }
 }
-
-app.post('/api/auth/register-admin', async (req, res) => registerStaffRequest(req, res, 'admin'));
-app.post('/api/auth/register-adviser', async (req, res) => registerStaffRequest(req, res, 'adviser'));
+app.post('/api/auth/register-admin', async (req, res) => {
+  const requestedRole = clean(req.body.role || 'admin', 40);
+  const role = requestedRole === 'administrator' ? 'admin' : (requestedRole === 'class_adviser' ? 'class_adviser' : requestedRole);
+  if (!STAFF_REQUEST_ROLES.includes(role)) return res.status(400).json({ error: 'Please select a valid account type to request (Administrator, Guidance Counselor, or Class Adviser).' });
+  return registerStaffRequest(req, res, role);
+});
+app.post('/api/auth/register-adviser', async (req, res) => registerStaffRequest(req, res, 'class_adviser'));
 // Backward-compatible alias
-app.post('/api/auth/register-teacher-request', async (req, res) => registerStaffRequest(req, res, 'adviser'));
+app.post('/api/auth/register-teacher-request', async (req, res) => registerStaffRequest(req, res, 'class_adviser'));
 
 // Student sign-up (no email required)
 app.post('/api/auth/register', async (req, res) => {
@@ -415,29 +464,70 @@ app.post('/api/auth/register', async (req, res) => {
     const name = clean(req.body.name || req.body.full_name, 100);
     const password = String(req.body.password || '');
     const studentNo = clean(req.body.student_no || req.body.studentNumber, 40);
-    // Standard student sign-up ignores any submitted email.
+    const gradeLevel = clean(req.body.grade_level || req.body.gradeLevel, 10);
+    const schoolYearId = Number(req.body.school_year_id || req.body.schoolYearId || 0);
+    const sectionId = Number(req.body.section_id || req.body.sectionId || 0);
+    const trackId = req.body.track_id ? Number(req.body.track_id) : (req.body.trackId ? Number(req.body.trackId) : null);
+    const strandId = req.body.strand_id ? Number(req.body.strand_id) : (req.body.strandId ? Number(req.body.strandId) : null);
+
     if (!name || !passwordStrong(password)) {
       return res.status(400).json({ error: 'Name and password of at least 10 characters are required.' });
     }
+    if (!['7','8','9','10','11','12'].includes(String(gradeLevel))) return res.status(400).json({ error: 'Select a valid grade level (7-12).' });
+    if (!schoolYearId || !sectionId) return res.status(400).json({ error: 'Select your school year and section as configured by the administrator.' });
+
+    const section = await db.get(
+      SELECT s.id, s.school_year_id, sy.label AS school_year, s.grade_level, s.section_name AS name, s.track_id, s.strand_id,
+             COALESCE(t.is_active, true) AS track_active, COALESCE(st.is_active, true) AS strand_active
+      FROM sections s
+      JOIN school_years sy ON sy.id = s.school_year_id
+      LEFT JOIN tracks t ON t.id = s.track_id
+      LEFT JOIN strands st ON st.id = s.strand_id
+      WHERE s.id = ?
+    , [sectionId]);
+    if (!section) return res.status(400).json({ error: 'Selected section was not found.' });
+    if (Number(section.school_year_id) !== Number(schoolYearId)) return res.status(400).json({ error: 'Selected section does not belong to the selected school year.' });
+    if (String(section.grade_level) !== String(gradeLevel)) return res.status(400).json({ error: 'Selected section does not match the selected grade level.' });
+
+    const isSHS = Number(gradeLevel) >= 11;
+    const finalTrackId = isSHS ? (trackId || section.track_id || null) : null;
+    const finalStrandId = isSHS ? (strandId || section.strand_id || null) : null;
+    if (isSHS) {
+      if (finalTrackId && finalStrandId) {
+        const strand = await db.get('SELECT id, track_id, COALESCE(is_active,true) AS is_active FROM strands WHERE id=?', [finalStrandId]);
+        if (!strand || !strand.is_active) return res.status(400).json({ error: 'Selected strand is unavailable.' });
+        if (Number(strand.track_id) !== Number(finalTrackId)) return res.status(400).json({ error: 'Selected strand does not belong to the selected track.' });
+      }
+    }
+
     const hash = await bcrypt.hash(password, 12);
+    const parts = name.split(/\s+/).filter(Boolean);
+    const firstName = parts.shift() || name;
+    const lastName = parts.join(' ') || '-';
     const id = await db.tx(async (dbx) => {
       const u = await dbx.run(
         "INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,'student','verified') RETURNING id",
         [name, null, hash]
       );
       const userId = Number(u.lastInsertRowid);
-      if (studentNo) {
-        await dbx.run('INSERT INTO student_profiles(user_id, student_no) VALUES (?,?) RETURNING id', [userId, studentNo]);
-      } else {
-        await dbx.run('INSERT INTO student_profiles(user_id) VALUES (?) RETURNING id', [userId]);
-      }
-      await audit({ id: userId }, 'Student registration', 'user', userId);
+      const st = await dbx.run(
+        INSERT INTO students(student_number, first_name, last_name, grade_level, section_id, track_id, strand_id, user_id, active)
+         VALUES(?,?,?,?,?,?,?,?, true) RETURNING id,
+        [studentNo || null, firstName, lastName, String(gradeLevel), sectionId, finalTrackId || null, finalStrandId || null, userId]
+      );
+      await dbx.run(
+        INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id)
+         VALUES(?,?,?,?,?,?) RETURNING id,
+        [userId, studentNo || null, String(gradeLevel), sectionId, finalTrackId || null, finalStrandId || null]
+      );
+      await audit({ id: userId }, 'Student registration', 'student', st.lastInsertRowid, section_id=; school_year_id=);
       return userId;
     });
-    res.json({ id, message: 'Student account created.' });
+    res.json({ id, message: 'Student account created. You can sign in now.' });
   } catch (e) {
-    const msg = String(e.message || '');
-    res.status(400).json({ error: msg.toLowerCase().includes('unique') || msg.toLowerCase().includes('duplicate') ? 'Account/profile already exists.' : 'Registration failed.' });
+    const msg = String(e.message || '').toLowerCase();
+    if (msg.includes('unique') || msg.includes('duplicate')) return res.status(409).json({ error: 'Account, student number, or profile already exists.' });
+    res.status(400).json({ error: 'Registration failed. Check your selected school year, section, and Grade 11-12 track/strand.' });
   }
 });
 
@@ -491,82 +581,31 @@ app.post('/api/setup', async (req, res) => {
   }
 });
 
-// Public homepage: look up a student record by exact LRN/student number (no login required)
-app.get('/api/public/student-lookup', async (req, res) => {
+app.get('/api/public/signup-options', async (_req, res) => {
   try {
-    const lrn = str(req.query.lrn || req.query.student_number || '', 40);
-    if (!lrn) return res.status(400).json({ error: 'Enter a Learner Reference Number (LRN).' });
-
-    const student = await db.get(`
-      SELECT st.id, st.student_number, st.first_name, st.last_name, st.grade_level, st.status,
-             sec.name AS section_name, sec.grade_level AS section_grade,
-             sy.label AS school_year,
-             tr.name AS track_name, sd.name AS strand_name
-      FROM students st
-      LEFT JOIN sections sec ON sec.id = st.section_id
-      LEFT JOIN school_years sy ON sy.id = sec.school_year_id
-      LEFT JOIN tracks tr ON tr.id = st.track_id
-      LEFT JOIN strands sd ON sd.id = st.strand_id
-      WHERE st.student_number = ?
-      LIMIT 1
-    `, [lrn]);
-
-    if (!student || String(student.status || '').toLowerCase() === 'inactive') {
-      return res.status(404).json({ error: 'No active student record found for that LRN.' });
-    }
-
-    const violations = await db.all(`
-      SELECT v.id, v.case_number, v.incident_date, v.status, v.description,
-             o.name AS offense, o.severity,
-             COALESCE(v.community_service_type, '') AS community_service_type,
-             COALESCE(v.required_hours, v.community_service_hours, 0) AS required_hours,
-             COALESCE(v.completed_service_hours, 0) AS completed_hours,
-             COALESCE(v.service_status, 'none') AS service_status
-      FROM violations v
-      LEFT JOIN offenses o ON o.id = v.offense_id
-      WHERE v.student_id = ?
-      ORDER BY v.incident_date DESC NULLS LAST, v.id DESC
-      LIMIT 50
-    `, [student.id]);
-
-    const totals = (violations || []).reduce((acc, v) => {
-      acc.cases += 1;
-      acc.required += Number(v.required_hours || 0);
-      acc.completed += Number(v.completed_hours || 0);
-      if (!['Resolved', 'Closed', 'Rejected'].includes(v.status || '')) acc.open += 1;
-      const ss = String(v.service_status || 'none').toLowerCase();
-      if (ss !== 'none' && ss !== 'completed' && ss !== 'complete') acc.servicePending += 1;
-      return acc;
-    }, { cases: 0, open: 0, required: 0, completed: 0, servicePending: 0 });
-
-    res.json({
-      student: {
-        student_number: student.student_number,
-        name: `${student.first_name || ''} ${student.last_name || ''}`.trim(),
-        grade_level: student.grade_level || student.section_grade || '',
-        section_name: student.section_name || '',
-        school_year: student.school_year || '',
-        track: student.track_name || '',
-        strand: student.strand_name || ''
-      },
-      totals,
-      violations: (violations || []).map(v => ({
-        case_number: v.case_number,
-        incident_date: v.incident_date,
-        offense: v.offense || 'Violation',
-        severity: v.severity || '',
-        status: v.status || 'Reported',
-        community_service_type: v.community_service_type || '',
-        required_hours: Number(v.required_hours || 0),
-        completed_hours: Number(v.completed_hours || 0),
-        service_status: v.service_status || 'none'
-      }))
-    });
+    const [schoolYears, sections, tracks, strands] = await Promise.all([
+      db.all('SELECT id, label, is_active FROM school_years ORDER BY is_active DESC, label DESC, id DESC'),
+      db.all(
+        SELECT s.id, s.school_year_id, sy.label AS school_year, s.grade_level, s.section_name AS name, s.track_id, s.strand_id
+        FROM sections s
+        JOIN school_years sy ON sy.id = s.school_year_id
+        WHERE COALESCE(sy.is_active, false) = true OR sy.archived_at IS NULL
+        ORDER BY CAST(s.grade_level AS INTEGER) ASC, s.section_name ASC
+      ),
+      db.all('SELECT id, name FROM tracks WHERE COALESCE(is_active, true) = true ORDER BY name ASC'),
+      db.all(
+        SELECT st.id, st.name, st.track_id, t.name AS track_name
+        FROM strands st
+        LEFT JOIN tracks t ON t.id = st.track_id
+        WHERE COALESCE(st.is_active, true) = true
+        ORDER BY st.name ASC
+      )
+    ]);
+    res.json({ schoolYears, sections, tracks, strands, trackStrandEnabled: tracks.length > 0 || strands.length > 0 });
   } catch (e) {
-    res.status(500).json({ error: 'Unable to look up student record right now.' });
+    res.status(500).json({ error: 'Unable to load sign-up options.' });
   }
 });
-
 app.post('/api/auth/login', async (req, res) => {
   try {
     const ip = req.ip;
@@ -648,7 +687,14 @@ app.get('/api/dashboard', auth, verified, async (req, res) => {
 app.get('/api/admin/pending', auth, admin, async (req, res) => {
   try {
     const rows = await db.all(
-      "SELECT id,full_name,email,role,created_at FROM users WHERE role IN ('admin','adviser') AND status='pending' ORDER BY created_at ASC, role ASC, full_name ASC"
+      `SELECT u.id, u.full_name, u.email, u.role, u.created_at, u.requested_section_id,
+              sec.name AS requested_section_name, sec.grade_level AS requested_section_grade,
+              sy.name AS requested_school_year
+       FROM users u
+       LEFT JOIN sections sec ON sec.id = u.requested_section_id
+       LEFT JOIN school_years sy ON sy.id = sec.school_year_id
+       WHERE u.role IN ('admin','adviser','guidance_counselor','class_adviser') AND u.status='pending'
+       ORDER BY u.created_at ASC, u.role ASC, u.full_name ASC`
     );
     res.json(rows);
   } catch (e) {
@@ -663,17 +709,37 @@ async function handlePendingStaffApproval(req, res, approve) {
       return res.status(400).json({ error: 'You cannot approve or reject your own account.' });
     }
     const target = await db.get(
-      "SELECT id, role FROM users WHERE id=? AND role IN ('admin','adviser') AND status='pending'",
+      `SELECT u.id, u.role, u.requested_section_id, sec.name AS requested_section_name, sec.grade_level AS requested_section_grade, sy.name AS requested_school_year
+       FROM users u
+       LEFT JOIN sections sec ON sec.id = u.requested_section_id
+       LEFT JOIN school_years sy ON sy.id = sec.school_year_id
+       WHERE u.id=? AND u.role IN ('admin','adviser','guidance_counselor','class_adviser') AND u.status='pending'`,
       [id]
     );
     if (!target) return res.status(404).json({ error: 'Pending account request not found.' });
+
+    if (approve && target.role === 'class_adviser') {
+      if (!target.requested_section_id) {
+        return res.status(400).json({ error: 'This class adviser request has no section assigned. Ask the requester to submit a new request and select a section.' });
+      }
+      const adviserErr = await validateClassAdviserSectionAssignment('class_adviser', [target.requested_section_id], id);
+      if (adviserErr) return res.status(409).json({ error: adviserErr });
+    }
+
     const status = approve ? 'verified' : 'rejected';
-    await db.run(
-      "UPDATE users SET status=?, verified_by=?, verified_at=CURRENT_TIMESTAMP WHERE id=?",
-      [status, req.session.user.id, id]
-    );
+    await db.tx(async (dbc) => {
+      await dbc.run(
+        "UPDATE users SET status=?, verified_by=?, verified_at=CURRENT_TIMESTAMP WHERE id=?",
+        [status, req.session.user.id, id]
+      );
+      if (approve && target.role === 'class_adviser' && target.requested_section_id) {
+        await dbc.run('DELETE FROM teacher_sections WHERE teacher_id=?', [id]);
+        await dbc.run('INSERT INTO teacher_sections(teacher_id,section_id) VALUES(?,?) ON CONFLICT DO NOTHING', [id, target.requested_section_id]);
+      }
+    });
+
     await audit(req.session.user, `${approve ? 'Approve' : 'Reject'} ${target.role} request`, 'user', id, status);
-    res.json({ ok: true, status, role: target.role });
+    res.json({ ok: true, status, role: target.role, requested_section_id: target.requested_section_id || null });
   } catch (e) {
     res.status(500).json({ error: 'Unable to update pending account request.' });
   }

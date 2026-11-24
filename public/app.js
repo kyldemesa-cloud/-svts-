@@ -1,4 +1,4 @@
-﻿const $ = s => document.querySelector(s);
+const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 let me = null;
@@ -41,13 +41,13 @@ function toast(msg) {
 }
 function msg(el, m) { if (el) el.textContent = m; }
 function initials(n) { return String(n || '').split(' ').map(x => x[0] || '').join('').slice(0, 2).toUpperCase() || '--'; }
-function fmtDate(d) { if (!d) return '—'; const s = String(d).slice(0,10); const dt = new Date(s + 'T00:00:00'); return Number.isNaN(dt.getTime()) ? s : dt.toLocaleDateString(); }
+function fmtDate(d) { if (!d) return '�'; const s = String(d).slice(0,10); const dt = new Date(s + 'T00:00:00'); return Number.isNaN(dt.getTime()) ? s : dt.toLocaleDateString(); }
 function badge(s) {
   const cls = /complete|resolved|verified/i.test(s || '') ? 'complete'
     : /pending|assigned|reported|in_progress/i.test(s || '') ? 'pending'
     : /reject|suspend|serious/i.test(s || '') ? 'danger'
     : 'review';
-  return `<span class="badge ${cls}">${esc(s || '—')}</span>`;
+  return `<span class="badge ${cls}">${esc(s || '�')}</span>`;
 }
 function hoursNum(v) { const n = Number(v || 0); return Number.isFinite(n) ? n : 0; }
 function isSHSGrade(g) { return ['11', '12', 11, 12].includes(String(g ?? '').trim()); }
@@ -56,19 +56,19 @@ function trackStrandEnabledForGrade(g) { return isSHSGrade(g) && !!academicConfi
 function navItems() {
   return me.role === 'admin'
     ? [
-        ['dashboard', '◫', 'Dashboard'],
-        ['violations', '▤', 'Violation Records'],
-        ['students', '♙', 'Students'],
-        ['community', '◷', 'Community Service'],
-        ['sections', '▦', 'Sections & School Years'],
-        ['accounts', '♧', 'Accounts'],
-        ['offenses', '⚑', 'Offense Catalog'],
-        ['reports', '▥', 'Reports']
+        ['dashboard', '?', 'Dashboard'],
+        ['violations', '?', 'Violation Records'],
+        ['students', '?', 'Students'],
+        ['community', '?', 'Community Service'],
+        ['sections', '?', 'Sections & School Years'],
+        ['accounts', '?', 'Accounts'],
+        ['offenses', '?', 'Offense Catalog'],
+        ['reports', '?', 'Reports']
       ]
     : [
-        ['dashboard', '◫', 'Dashboard'],
-        ['violations', '▤', 'Violation Records'],
-        ['community', '◷', 'Community Service']
+        ['dashboard', '?', 'Dashboard'],
+        ['violations', '?', 'Violation Records'],
+        ['community', '?', 'Community Service']
       ];
 }
 
@@ -78,7 +78,7 @@ function showApp() {
   $('#app')?.classList.remove('hidden');
   if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
   if ($('#userRole')) {
-    const labels = { admin: 'Verified administrator', teacher: 'Teacher', adviser: 'Adviser', student: 'Student' };
+    const labels = { admin: 'Administrator', teacher: 'Teacher', guidance_counselor: 'Guidance Counselor', class_adviser: 'Class Adviser', student: 'Student' };
     $('#userRole').textContent = labels[me?.role] || me?.role || 'User';
   }
   if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
@@ -114,7 +114,7 @@ function activeFilterEntries() {
     return { key: k, label: labels[k] || k, value: String(display) };
   });
 }
-function sectionLabelById(id) { const s = sections.find(x => String(x.id) === String(id)); return s ? `G${s.grade_level} · ${s.section_name}` : ''; }
+function sectionLabelById(id) { const s = sections.find(x => String(x.id) === String(id)); return s ? `G${s.grade_level} � ${s.section_name}` : ''; }
 function trackNameById(id) { const t = academicConfig.tracks.find(x => String(x.id) === String(id)); return t ? t.name : ''; }
 function strandNameById(id) { const s = academicConfig.strands.find(x => String(x.id) === String(id)); return s ? s.name : ''; }
 function offenseNameById(id) { const o = offenses.find(x => String(x.id) === String(id)); return o ? o.name : ''; }
@@ -194,7 +194,7 @@ function trackOptions(selected = '', includeBlank = true) {
 }
 function strandOptions(selected = '', trackId = '', includeBlank = true) {
   const list = academicConfig.strands.filter(s => !trackId || String(s.track_id || '') === String(trackId));
-  return `${includeBlank ? '<option value="">Not set</option>' : ''}${list.map(s => `<option value="${s.id}" ${String(selected)===String(s.id)?'selected':''}>${esc(s.name)} (${esc(s.code)})${s.track_name ? ' · ' + esc(s.track_name) : ''}</option>`).join('')}`;
+  return `${includeBlank ? '<option value="">Not set</option>' : ''}${list.map(s => `<option value="${s.id}" ${String(selected)===String(s.id)?'selected':''}>${esc(s.name)} (${esc(s.code)})${s.track_name ? ' � ' + esc(s.track_name) : ''}</option>`).join('')}`;
 }
 function violationTypeOptions(selected = '') {
   return `<option value="">All violation types</option>${offenses.map(o => `<option value="${o.id}" ${String(selected)===String(o.id)?'selected':''}>${esc(o.name)} (${esc(o.severity)})</option>`).join('')}`;
@@ -211,7 +211,7 @@ function renderFilterForm(prefix = 'vf', options = {}) {
         <label>Added from<input id="${prefix}From" type="date" value="${esc(f.added_from || '')}"></label>
         <label>Added to<input id="${prefix}To" type="date" value="${esc(f.added_to || '')}"></label>
         <label>Grade level<input id="${prefix}Grade" value="${esc(f.grade_level || '')}" placeholder="e.g. 11"></label>
-        <label>Section<select id="${prefix}Section"><option value="">All sections</option>${sections.map(s => `<option value="${s.id}" ${String(f.section_id)===String(s.id)?'selected':''}>G${esc(s.grade_level)} · ${esc(s.section_name)}</option>`).join('')}</select></label>
+        <label>Section<select id="${prefix}Section"><option value="">All sections</option>${sections.map(s => `<option value="${s.id}" ${String(f.section_id)===String(s.id)?'selected':''}>G${esc(s.grade_level)} � ${esc(s.section_name)}</option>`).join('')}</select></label>
         ${showTrackStrand ? `<label>Track<select id="${prefix}Track" ${tsRelevant ? '' : 'disabled'}><option value="">All tracks</option>${academicConfig.tracks.map(t => `<option value="${t.id}" ${String(f.track_id)===String(t.id)?'selected':''}>${esc(t.name)}</option>`).join('')}</select></label>` : ''}
         ${showTrackStrand ? `<label>Strand<select id="${prefix}Strand" ${tsRelevant ? '' : 'disabled'}><option value="">All strands</option>${academicConfig.strands.map(s => `<option value="${s.id}" ${String(f.strand_id)===String(s.id)?'selected':''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
         <label>Violation type<select id="${prefix}ViolationType">${violationTypeOptions(f.violation_type)}</select></label>
@@ -224,7 +224,7 @@ function renderFilterForm(prefix = 'vf', options = {}) {
         ${options.extraButtons || ''}
       </div>
       <div><div class="tiny muted" style="margin-bottom:6px">Active filters</div>${filterChipsHtml()}</div>
-      <div class="tiny muted">Date filters are inclusive; "Added to" includes records through the end of that day. ${academicConfig.enabled ? 'Track/strand filters apply when configured (typically Grades 11–12).' : 'Track/strand filters are hidden because no active tracks/strands are configured.'}</div>
+      <div class="tiny muted">Date filters are inclusive; "Added to" includes records through the end of that day. ${academicConfig.enabled ? 'Track/strand filters apply when configured (typically Grades 11�12).' : 'Track/strand filters are hidden because no active tracks/strands are configured.'}</div>
     </div>`;
 }
 
@@ -284,7 +284,7 @@ function renderDashboard() {
   let html = `<div class="grid">${cardKpi('Active students', students.length, 'Within selected school year')}${cardKpi('Violation cases', cases.length, 'Loaded records')}${cardKpi('Open / in progress', activeCases, 'Cases needing follow-up')}${cardKpi('Service assignments', assigned, `${complete} completed`)}</div>`;
   html += `<h2 class="section-title">Recent violations (advanced filter)</h2>`;
   html += renderFilterForm('dbf');
-  const rows = (dashboardRecent.items || cases).slice(0, 10).map(c => `<tr><td>${esc(c.case_number)}</td><td>${esc((c.first_name||'')+' '+(c.last_name||''))}<div class="tiny muted">${esc(c.student_number||'')}</div></td><td>G${esc(c.grade_level||'')} · ${esc(c.section_name||'')}</td><td>${esc(c.offense||'')}</td><td>${badge(c.severity||'')}</td><td>${fmtDate(c.incident_date)}</td><td>${badge(c.status||'')}<div class="tiny muted">service: ${esc(c.service_status||'none')}</div></td></tr>`).join('');
+  const rows = (dashboardRecent.items || cases).slice(0, 10).map(c => `<tr><td>${esc(c.case_number)}</td><td>${esc((c.first_name||'')+' '+(c.last_name||''))}<div class="tiny muted">${esc(c.student_number||'')}</div></td><td>G${esc(c.grade_level||'')} � ${esc(c.section_name||'')}</td><td>${esc(c.offense||'')}</td><td>${badge(c.severity||'')}</td><td>${fmtDate(c.incident_date)}</td><td>${badge(c.status||'')}<div class="tiny muted">service: ${esc(c.service_status||'none')}</div></td></tr>`).join('');
   html += `<div style="height:12px"></div>${table(['Case no.','Student','Grade / Section','Offense','Severity','Date','Status'], rows)}`;
   if (me.role === 'admin') {
     html += `<h2 class="section-title">Administrator approvals</h2><div class="card"><p>${pending.length} pending administrator registration(s).</p><button class="primary smallbtn" data-view="accounts">Review accounts</button></div>`;
@@ -299,11 +299,11 @@ function renderCases() {
     return `<tr>
       <td>${esc(c.case_number)}</td>
       <td>${esc((c.first_name || '') + ' ' + (c.last_name || ''))}${c.student_number ? `<div class="tiny muted">${esc(c.student_number)}</div>` : ''}</td>
-      <td>G${esc(c.grade_level || '')} · ${esc(c.section_name || '')}</td>
+      <td>G${esc(c.grade_level || '')} � ${esc(c.section_name || '')}</td>
       <td>${esc(c.offense || '')}${c.community_service_type ? `<div class="tiny muted">Service: ${esc(c.community_service_type)}</div>` : ''}</td>
       <td>${badge(c.severity || '')}</td>
       <td>${fmtDate(c.incident_date)}</td>
-      <td>${badge(c.status || '')}<div class="tiny muted">service: ${esc(c.service_status || 'none')} · ${hoursNum(c.completed_service_hours).toFixed(2)}/${hoursNum(c.required_service_hours).toFixed(2)}h (rem ${remaining.toFixed(2)}h)</div></td>
+      <td>${badge(c.status || '')}<div class="tiny muted">service: ${esc(c.service_status || 'none')} � ${hoursNum(c.completed_service_hours).toFixed(2)}/${hoursNum(c.required_service_hours).toFixed(2)}h (rem ${remaining.toFixed(2)}h)</div></td>
       <td>${me.role === 'admin'
         ? `<select data-case-status="${c.id}">${['Reported','Under Review','Verified','Accepted','In Progress','Resolved','Closed','Rejected','Escalated'].map(x => `<option ${x===c.status?'selected':''}>${x}</option>`).join('')}</select><div style="height:6px"></div><button class="ghost smallbtn" data-details="${c.id}">Details</button>`
         : `<button class="ghost smallbtn" data-details="${c.id}">View</button>`}</td>
@@ -323,14 +323,14 @@ function renderStudents() {
   const rows = students.map(s => {
     const remainingViolations = cases.filter(c => String(c.student_id || '') === String(s.id) && hoursNum(c.required_service_hours) > hoursNum(c.completed_service_hours));
     return `<tr>
-      <td>${esc(s.student_number || '—')}</td>
+      <td>${esc(s.student_number || '�')}</td>
       <td>${esc((s.last_name||'') + ', ' + (s.first_name||''))}</td>
       <td>G${esc(s.grade_level || '')}</td>
       <td>${esc(s.section_name || '')}</td>
-      <td>${esc(s.strand_name || s.section_strand_text || s.strand || '—')}</td>
-      <td>${esc(s.guardian_name || '—')}${s.guardian_contact ? `<div class="tiny muted">${esc(s.guardian_contact)}</div>` : ''}</td>
+      <td>${esc(s.strand_name || s.section_strand_text || s.strand || '�')}</td>
+      <td>${esc(s.guardian_name || '�')}${s.guardian_contact ? `<div class="tiny muted">${esc(s.guardian_contact)}</div>` : ''}</td>
       <td>${remainingViolations.length ? `<span class="badge pending">${remainingViolations.length} with remaining service</span>` : badge('OK')}</td>
-      <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-student-edit="${s.id}">Edit</button><button class="primary smallbtn" data-student-reassign="${s.id}">Reassign</button></div>` : '—'}</td>
+      <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-student-edit="${s.id}">Edit</button><button class="primary smallbtn" data-student-reassign="${s.id}">Reassign</button></div>` : '�'}</td>
     </tr>`;
   }).join('');
 
@@ -338,15 +338,15 @@ function renderStudents() {
     <div class="card">
       <h3 style="margin-top:0">Bulk section reassignment</h3>
       <div class="filter-grid">
-        <label>Students<select id="bulkStudentIds" multiple size="8">${students.map(s => `<option value="${s.id}">${esc((s.last_name||'')+', '+(s.first_name||''))} · G${esc(s.grade_level||'')} ${esc(s.section_name||'')}</option>`).join('')}</select></label>
-        <label>Target section<select id="bulkTargetSection"><option value="">Select section</option>${sections.map(sec => `<option value="${sec.id}" data-grade="${esc(sec.grade_level||'')}" data-track-id="${esc(sec.track_id||'')}" data-strand-id="${esc(sec.strand_id||'')}">G${esc(sec.grade_level)} · ${esc(sec.section_name)}${sec.school_year ? ' · ' + esc(sec.school_year) : ''}</option>`).join('')}</select></label>
+        <label>Students<select id="bulkStudentIds" multiple size="8">${students.map(s => `<option value="${s.id}">${esc((s.last_name||'')+', '+(s.first_name||''))} � G${esc(s.grade_level||'')} ${esc(s.section_name||'')}</option>`).join('')}</select></label>
+        <label>Target section<select id="bulkTargetSection"><option value="">Select section</option>${sections.map(sec => `<option value="${sec.id}" data-grade="${esc(sec.grade_level||'')}" data-track-id="${esc(sec.track_id||'')}" data-strand-id="${esc(sec.strand_id||'')}">G${esc(sec.grade_level)} � ${esc(sec.section_name)}${sec.school_year ? ' � ' + esc(sec.school_year) : ''}</option>`).join('')}</select></label>
         <label>Grade override (optional)<input id="bulkGrade" placeholder="Defaults from section/student"></label>
         <label>Track (optional)<select id="bulkTrack"><option value="">Use section/default</option>${trackOptions('', false)}</select></label>
         <label>Strand (optional)<select id="bulkStrand"><option value="">Use section/default</option>${strandOptions('', '', false)}</select></label>
         <label class="span-2">Reason<textarea id="bulkReason" rows="2" placeholder="Optional reassignment reason"></textarea></label>
       </div>
       <div class="filter-actions" style="margin-top:10px"><button class="primary" id="bulkReassignBtn">Reassign selected students</button></div>
-      <p class="tiny muted">Flexible reassignment preserves violation and community service records, logs section assignment history, and can apply target section grade/track/strand defaults (including Grade 11–12 strand changes when configured).</p>
+      <p class="tiny muted">Flexible reassignment preserves violation and community service records, logs section assignment history, and can apply target section grade/track/strand defaults (including Grade 11�12 strand changes when configured).</p>
     </div><div style="height:12px"></div>` : '';
 
   $('#content').innerHTML =
@@ -379,17 +379,17 @@ function renderStudents() {
 }
 
 function renderSections() {
-  const yearRows = years.map(y => `<tr><td>${esc(y.label)}</td><td>${y.is_active ? badge('Active') : badge('Inactive')}</td><td>${y.archived_at ? fmtDate(String(y.archived_at).slice(0,10)) : '—'}</td><td class="actions">${!y.is_active ? `<button class="primary smallbtn" data-activate-year="${y.id}">Set active</button>` : ''}</td></tr>`).join('');
-  const secRows = sections.map(s => `<tr><td>G${esc(s.grade_level)}</td><td>${esc(s.section_name)}</td><td>${esc(s.track_name || '—')} / ${esc(s.strand_name || s.strand || '—')}</td><td>${esc(s.school_year || s.school_year_label || '')}</td><td class="actions"><button class="ghost smallbtn" data-edit-section="${s.id}">Edit</button><button class="ghost smallbtn" data-delete-section="${s.id}">Delete</button></td></tr>`).join('');
+  const yearRows = years.map(y => `<tr><td>${esc(y.label)}</td><td>${y.is_active ? badge('Active') : badge('Inactive')}</td><td>${y.archived_at ? fmtDate(String(y.archived_at).slice(0,10)) : '�'}</td><td class="actions">${!y.is_active ? `<button class="primary smallbtn" data-activate-year="${y.id}">Set active</button>` : ''}</td></tr>`).join('');
+  const secRows = sections.map(s => `<tr><td>G${esc(s.grade_level)}</td><td>${esc(s.section_name)}</td><td>${esc(s.track_name || '�')} / ${esc(s.strand_name || s.strand || '�')}</td><td>${esc(s.school_year || s.school_year_label || '')}</td><td class="actions"><button class="ghost smallbtn" data-edit-section="${s.id}">Edit</button><button class="ghost smallbtn" data-delete-section="${s.id}">Delete</button></td></tr>`).join('');
 
   const cfg = academicConfigAll.tracks?.length || academicConfigAll.strands?.length || me.role === 'admin' ? academicConfigAll : academicConfig;
-  const trackRows = (cfg.tracks || []).map(t => `<tr><td>${esc(t.code)}</td><td>${esc(t.name)}</td><td>${t.is_active ? badge('Active') : badge('Inactive')}</td><td>${me.role==='admin'?`<button class="ghost smallbtn" data-edit-track="${t.id}">Edit</button>`:'—'}</td></tr>`).join('');
-  const strandRows = (cfg.strands || []).map(s => `<tr><td>${esc(s.code)}</td><td>${esc(s.name)}</td><td>${esc(s.track_name || '—')}</td><td>${s.is_active ? badge('Active') : badge('Inactive')}</td><td>${me.role==='admin'?`<button class="ghost smallbtn" data-edit-strand="${s.id}">Edit</button>`:'—'}</td></tr>`).join('');
+  const trackRows = (cfg.tracks || []).map(t => `<tr><td>${esc(t.code)}</td><td>${esc(t.name)}</td><td>${t.is_active ? badge('Active') : badge('Inactive')}</td><td>${me.role==='admin'?`<button class="ghost smallbtn" data-edit-track="${t.id}">Edit</button>`:'�'}</td></tr>`).join('');
+  const strandRows = (cfg.strands || []).map(s => `<tr><td>${esc(s.code)}</td><td>${esc(s.name)}</td><td>${esc(s.track_name || '�')}</td><td>${s.is_active ? badge('Active') : badge('Inactive')}</td><td>${me.role==='admin'?`<button class="ghost smallbtn" data-edit-strand="${s.id}">Edit</button>`:'�'}</td></tr>`).join('');
 
   const academicPanel = me.role === 'admin' ? `
     <div class="card" style="margin-top:15px">
-      <div class="page-head"><h3 style="margin:0">Dynamic Tracks & Strands (Grades 11–12, optional)</h3><div class="actions"><button class="primary smallbtn" data-modal="track">+ Add track</button><button class="primary smallbtn" data-modal="strand">+ Add strand</button></div></div>
-      <p class="tiny muted">Configuration is optional. When no active tracks/strands are configured, Grade 11–12 forms/filters allow saving without track/strand and selectors can be hidden. Grades 7–10 do not use track/strand. Changes reflect across enrollment, profiles, filters, and reports after refresh in-app (no redeploy).</p>
+      <div class="page-head"><h3 style="margin:0">Dynamic Tracks & Strands (Grades 11�12, optional)</h3><div class="actions"><button class="primary smallbtn" data-modal="track">+ Add track</button><button class="primary smallbtn" data-modal="strand">+ Add strand</button></div></div>
+      <p class="tiny muted">Configuration is optional. When no active tracks/strands are configured, Grade 11�12 forms/filters allow saving without track/strand and selectors can be hidden. Grades 7�10 do not use track/strand. Changes reflect across enrollment, profiles, filters, and reports after refresh in-app (no redeploy).</p>
       <div class="two-col" style="margin-top:12px">
         <div>${table(['Code','Track','Status','Actions'], trackRows || `<tr><td colspan="4" class="empty">No tracks configured.</td></tr>` )}</div>
         <div>${table(['Code','Strand','Track','Status','Actions'], strandRows || `<tr><td colspan="5" class="empty">No strands configured.</td></tr>` )}</div>
@@ -400,7 +400,7 @@ function renderSections() {
     `<div class="card"><div class="inline-form"><label style="margin:0;min-width:220px;flex:1">View sections for school year<select id="yearFilter">${years.map(y => `<option value="${y.id}" ${y.id === activeYear?.id ? 'selected' : ''}>${esc(y.label)}</option>`).join('')}</select></label><div class="filter-actions">${me.role==='admin'?'<button class="primary" data-modal="year">+ Add school year</button><button class="primary" data-modal="section">+ Add section</button>':''}</div></div></div>` +
     `<div style="height:15px"></div><div class="two-col"><div>${pageHead('School years', '')}${table(['School year','Status','Archived','Action'], yearRows)}</div><div>${pageHead('Flexible sections', '')}${table(['Grade','Section','Track / Strand','School year','Actions'], secRows)}</div></div>` +
     academicPanel +
-    `<p class="note">Sections are defined per school year and may include track/strand for Grades 11–12 when configured. Current section assignments are reflected in student records, violation views, and exports.</p>`;
+    `<p class="note">Sections are defined per school year and may include track/strand for Grades 11�12 when configured. Current section assignments are reflected in student records, violation views, and exports.</p>`;
   $('#yearFilter') && ($('#yearFilter').onchange = async () => {
     const id = Number($('#yearFilter').value);
     activeYear = years.find(y => y.id === id) || activeYear;
@@ -410,13 +410,19 @@ function renderSections() {
 }
 
 function renderAccounts() {
-  const pendingRows = pending.map(p => `<tr><td>${esc(p.full_name)}</td><td>${esc(p.email)}</td><td>${fmtDate((p.created_at||'').slice(0,10))}</td><td class="actions"><button class="primary smallbtn" data-approve="${p.id}">Verify</button><button class="ghost smallbtn" data-reject="${p.id}">Reject</button></td></tr>`).join('');
-  const userRows = users.map(u => `<tr><td>${esc(u.full_name)}</td><td>${esc(u.email || '—')}</td><td>${badge(u.role)}</td><td>${badge(u.status)}</td><td>${u.role === 'teacher' ? `<button class="primary smallbtn" data-assign="${u.id}">Sections</button> ` : ''}${u.id === me.id ? 'Current account' : `<button class="ghost smallbtn" data-toggle-user="${u.id}" data-status="${u.status === 'suspended' ? 'verified' : 'suspended'}">${u.status === 'suspended' ? 'Reactivate' : 'Suspend'}</button>`}</td></tr>`).join('');
+  const roleName = r => ({admin:'Administrator',teacher:'Teacher',student:'Student',guidance_counselor:'Guidance Counselor',class_adviser:'Class Adviser'}[r] || r || '');
+  const pendingRows = pending.map(p => {
+    const reqSec = p.role === 'class_adviser' && (p.requested_section_name || p.requested_school_year)
+      ? `<div class="tiny muted">${esc(p.requested_school_year || '')} · Grade ${esc(p.requested_section_grade || '')} ${esc(p.requested_section_name || '')}</div>`
+      : '';
+    return `<tr><td>${esc(p.full_name)}</td><td>${esc(p.email || '—')}</td><td>${esc(roleName(p.role))}${reqSec}</td><td>${fmtDate((p.created_at||'').slice(0,10))}</td><td class="actions"><button class="primary smallbtn" data-approve="${p.id}">Approve</button><button class="ghost smallbtn" data-reject="${p.id}">Reject</button></td></tr>`;
+  }).join('');
+  const userRows = users.map(u => `<tr><td>${esc(u.full_name)}</td><td>${esc(u.email || '—')}</td><td>${esc(roleName(u.role))}</td><td>${badge(u.status)}</td><td>${(u.role === 'teacher' || u.role === 'guidance_counselor' || u.role === 'class_adviser') ? `<button class="primary smallbtn" data-assign="${u.id}">Sections</button> ` : ''}${u.id === me.id ? 'Current account' : `<button class="ghost smallbtn" data-toggle-user="${u.id}" data-status="${u.status === 'suspended' ? 'verified' : 'suspended'}">${u.status === 'suspended' ? 'Reactivate' : 'Suspend'}</button>`}</td></tr>`).join('');
   $('#content').innerHTML =
-    pageHead('Account management', '<div class="actions"><button class="primary" data-modal="teacher">+ Create teacher</button><button class="primary" data-modal="staffUser">+ Create admin/teacher</button></div>') +
-    `<h2 class="section-title">Pending administrator verification</h2>${table(['Name','Email','Registered','Review'], pendingRows)}` +
+    pageHead('Account management', '<div class="actions"><button class="primary" data-modal="teacher">+ Create teacher</button><button class="primary" data-modal="staffUser">+ Create staff account</button></div>') +
+    `<h2 class="section-title">Pending staff account requests (approved by another admin)</h2>${table(['Name','Email','Requested role','Requested','Review'], pendingRows)}` +
     `<h2 class="section-title">System accounts</h2>${table(['Name','Email','Role','Status','Action'], userRows)}` +
-    `<p class="note">Standard student sign-up does not require email. Email is required for admin/teacher accounts. Teacher accounts are created by verified administrators and may be assigned to one or more sections.</p>`;
+    `<p class="note">Student sign-up does not require email. Administrator, Guidance Counselor, and Class Adviser accounts can request access and must be approved by an existing administrator. Class Adviser requests/accounts are limited to one section per school year (one adviser account per section; creating a new section/school year allows a new adviser for that section). Teacher accounts are created by verified administrators and may be assigned to one section only.</p>`;
 }
 
 function renderOffenses() {
@@ -459,17 +465,17 @@ function renderService() {
     const date = `${ym}-${String(day).padStart(2,'0')}`;
     const info = daysMap.get(date);
     const selected = calendarState.selectedDate === date ? ' selected' : '';
-    cells.push(`<button type="button" class="calendar-day ${info ? 'has-logs' : ''}${selected}" data-calendar-day="${date}"><div class="day-num">${day}</div><div class="meta">${info ? `${hoursNum(info.total_hours).toFixed(2)}h · ${info.student_count||0} student(s)<br>${info.log_count||0} log(s)` : 'No attendance logged'}</div></button>`);
+    cells.push(`<button type="button" class="calendar-day ${info ? 'has-logs' : ''}${selected}" data-calendar-day="${date}"><div class="day-num">${day}</div><div class="meta">${info ? `${hoursNum(info.total_hours).toFixed(2)}h � ${info.student_count||0} student(s)<br>${info.log_count||0} log(s)` : 'No attendance logged'}</div></button>`);
   }
 
   const detailRows = (calendarState.selectedItems || []).map(l => {
     const remaining = Math.max(0, hoursNum(l.required_service_hours) - hoursNum(l.completed_service_hours));
-    return `<tr><td>${esc((l.last_name||'')+', '+(l.first_name||''))}<div class="tiny muted">${esc(l.student_number||'')} · G${esc(l.grade_level||'')} ${esc(l.section_name||'')}</div></td><td>${esc(l.case_number || '—')}</td><td>${hoursNum(l.hours_rendered).toFixed(2)}</td><td>${hoursNum(l.completed_service_hours).toFixed(2)} / ${hoursNum(l.required_service_hours).toFixed(2)}<div class="tiny muted">Remaining: ${remaining.toFixed(2)}h · ${esc(l.service_status||'none')}</div></td><td>${esc(l.remarks || '—')}</td><td>${esc(l.verified_by_name || '—')}</td><td><button class="ghost smallbtn" data-edit-service-log="${l.id}">Edit</button></td></tr>`;
+    return `<tr><td>${esc((l.last_name||'')+', '+(l.first_name||''))}<div class="tiny muted">${esc(l.student_number||'')} � G${esc(l.grade_level||'')} ${esc(l.section_name||'')}</div></td><td>${esc(l.case_number || '�')}</td><td>${hoursNum(l.hours_rendered).toFixed(2)}</td><td>${hoursNum(l.completed_service_hours).toFixed(2)} / ${hoursNum(l.required_service_hours).toFixed(2)}<div class="tiny muted">Remaining: ${remaining.toFixed(2)}h � ${esc(l.service_status||'none')}</div></td><td>${esc(l.remarks || '�')}</td><td>${esc(l.verified_by_name || '�')}</td><td><button class="ghost smallbtn" data-edit-service-log="${l.id}">Edit</button></td></tr>`;
   }).join('');
 
   const assignmentRows = service.map(c => {
     const pct = c.hours_required ? Math.min(100, Math.round((Number(c.hours_completed||0) / Number(c.hours_required||1)) * 100)) : (c.service_days_required ? Math.min(100, Math.round((Number(c.days_completed||0) / Number(c.service_days_required||1)) * 100)) : 0);
-    return `<tr><td>${esc(c.first_name + ' ' + c.last_name)}</td><td>G${esc(c.grade_level)} · ${esc(c.section_name)}</td><td>${esc(c.case_number || 'Standalone')}</td><td>${c.days_completed}/${c.service_days_required} days</td><td>${Number(c.hours_completed||0).toFixed(1)}/${c.hours_required} hours</td><td><div class="progress"><span style="width:${pct}%"></span></div>${pct}%</td><td>${badge(c.status)}</td><td><div class="actions"><button class="primary smallbtn" data-attendance="${c.id}">Log day</button><button class="ghost smallbtn" data-history="${c.id}">History</button></div></td></tr>`;
+    return `<tr><td>${esc(c.first_name + ' ' + c.last_name)}</td><td>G${esc(c.grade_level)} � ${esc(c.section_name)}</td><td>${esc(c.case_number || 'Standalone')}</td><td>${c.days_completed}/${c.service_days_required} days</td><td>${Number(c.hours_completed||0).toFixed(1)}/${c.hours_required} hours</td><td><div class="progress"><span style="width:${pct}%"></span></div>${pct}%</td><td>${badge(c.status)}</td><td><div class="actions"><button class="primary smallbtn" data-attendance="${c.id}">Log day</button><button class="ghost smallbtn" data-history="${c.id}">History</button></div></td></tr>`;
   }).join('');
 
   $('#content').innerHTML =
@@ -479,7 +485,7 @@ function renderService() {
     `<div style="height:12px"></div><div class="split-panels">
       <div class="card calendar-wrap">
         <div class="calendar-header">
-          <div class="actions"><button class="ghost" id="calPrev">◀</button><button class="ghost" id="calToday">Today</button><button class="ghost" id="calNext">▶</button></div>
+          <div class="actions"><button class="ghost" id="calPrev">?</button><button class="ghost" id="calToday">Today</button><button class="ghost" id="calNext">?</button></div>
           <strong>${esc(monthLabel(ym))}</strong>
           <div class="tiny muted">Click a day to inspect attendance and remaining hours.</div>
         </div>
@@ -515,7 +521,7 @@ function serviceLogCandidates() {
     items.push({
       violation_id: c.id,
       student_id: sid || '',
-      label: `${c.case_number} · ${(c.first_name||'')+' '+(c.last_name||'')} · req ${hoursNum(c.required_service_hours).toFixed(2)}h / done ${hoursNum(c.completed_service_hours).toFixed(2)}h (${c.service_status||'none'})`
+      label: `${c.case_number} � ${(c.first_name||'')+' '+(c.last_name||'')} � req ${hoursNum(c.required_service_hours).toFixed(2)}h / done ${hoursNum(c.completed_service_hours).toFixed(2)}h (${c.service_status||'none'})`
     });
   });
   return { items, byStudent };
@@ -526,11 +532,11 @@ function openLogServiceModal(date, existing = null) {
   const candidateOptions = cases.map(c => {
     const student = students.find(s => String(s.student_number||'') === String(c.student_number||'') && String(s.last_name||'') === String(c.last_name||'') && String(s.first_name||'') === String(c.first_name||'')) || students.find(s => String(s.id) === String(c.student_id || ''));
     const studentId = student ? student.id : '';
-    const label = `${c.case_number} · ${(c.first_name||'')+' '+(c.last_name||'')} · ${c.student_number||'no#'} · req ${hoursNum(c.required_service_hours).toFixed(2)}h / done ${hoursNum(c.completed_service_hours).toFixed(2)}h (${c.service_status||'none'})`;
+    const label = `${c.case_number} � ${(c.first_name||'')+' '+(c.last_name||'')} � ${c.student_number||'no#'} � req ${hoursNum(c.required_service_hours).toFixed(2)}h / done ${hoursNum(c.completed_service_hours).toFixed(2)}h (${c.service_status||'none'})`;
     const selected = existing ? String(existing.violation_id||'') === String(c.id) : false;
     return `<option value="${c.id}" data-student-id="${studentId}" ${selected ? 'selected' : ''}>${esc(label)}</option>`;
   }).join('');
-  const studentOptions = students.map(s => `<option value="${s.id}" ${String(existing?.student_id||'')===String(s.id)?'selected':''}>${esc((s.last_name||'')+', '+(s.first_name||''))} · ${esc(s.student_number||'no #')} · G${esc(s.grade_level||'')} ${esc(s.section_name||'')}</option>`).join('');
+  const studentOptions = students.map(s => `<option value="${s.id}" ${String(existing?.student_id||'')===String(s.id)?'selected':''}>${esc((s.last_name||'')+', '+(s.first_name||''))} � ${esc(s.student_number||'no #')} � G${esc(s.grade_level||'')} ${esc(s.section_name||'')}</option>`).join('');
   const title = existing ? 'Update community service log' : 'Log community service hours';
   const m = modal(title, `
     <form id="modalForm">
@@ -579,7 +585,7 @@ function opt(list, value, label) { return list.map(x => `<option value="${x[valu
 
 function gradeTrackStrandFields(prefix, gradeVal = '', trackVal = '', strandVal = '') {
   const show = isSHSGrade(gradeVal) && academicConfig.enabled;
-  if (!show) return `<div class="tiny muted" id="${prefix}TsNote">Track/strand applies to Grades 11–12 only when configured by admin.</div>`;
+  if (!show) return `<div class="tiny muted" id="${prefix}TsNote">Track/strand applies to Grades 11�12 only when configured by admin.</div>`;
   return `
     <label>Track<select name="track_id" id="${prefix}Track"><option value="">Not set</option>${trackOptions(trackVal, false)}</select></label>
     <label>Strand<select name="strand_id" id="${prefix}Strand"><option value="">Not set</option>${strandOptions(strandVal, trackVal, false)}</select></label>`;
@@ -623,7 +629,7 @@ function openModal(kind, id) {
         <div id="secTsContainer"></div>
         <label>Strand label (optional text)<input name="strand" placeholder="Legacy/display label"></label>
         <label>School year label (optional override)<input name="school_year" placeholder="Defaults to selected school year"></label>
-      </form><p class="tiny muted">Track/strand selectors appear only for Grades 11–12 when active tracks/strands are configured. Grades 7–10 do not require them.</p>`);
+      </form><p class="tiny muted">Track/strand selectors appear only for Grades 11�12 when active tracks/strands are configured. Grades 7�10 do not require them.</p>`);
       wireGradeTrackStrand($('#modalForm'), 'sec');
       submit = async d => { await post('/api/sections', d); await loadData(); go('sections'); };
       break;
@@ -633,21 +639,38 @@ function openModal(kind, id) {
         <label>Full name<input name="name" required></label>
         <label>Email<input name="email" type="email" required></label>
         <label>Temporary password (10+ characters)<div class="password-wrap"><input name="password" type="password" minlength="10" required><button type="button" class="toggle-pass" data-toggle-password>Show</button></div></label>
-        <label>Assigned sections<select name="sections" multiple size="6">${opt(sections, 'id', 'section_name')}</select></label>
-        <p class="tiny muted">Teachers have read-only violation access. Email is required for teacher accounts.</p>
+        <label>Assigned section (teachers can be assigned to one section only)<select name="section_id" required><option value="">Select section</option>${opt(sections, 'id', 'section_name')}</select></label>
+        <p class="tiny muted">Teachers have section-scoped access and can be assigned to only one section. Email is required.</p>
       </form>`);
-      submit = async d => { const fd = $('#modalForm'); d.sections = [...fd.sections.selectedOptions].map(x => Number(x.value)); await post('/api/teachers', d); await loadData(); go('accounts'); };
+      submit = async d => { await post('/api/teachers', d); await loadData(); go('accounts'); };
       break;
 
     case 'staffUser':
-      m = modal('Create admin/teacher account', `<form id="modalForm">
+      m = modal('Create staff account', `<form id="modalForm">
         <label>Full name<input name="name" required></label>
-        <label>Role<select name="role" required><option value="teacher">Teacher</option><option value="admin">Admin</option></select></label>
+        <label>Role<select name="role" id="staffRoleSelect" required>
+          <option value="admin">Administrator</option>
+          <option value="guidance_counselor">Guidance Counselor</option>
+          <option value="class_adviser">Class Adviser</option>
+          <option value="teacher">Teacher</option>
+        </select></label>
         <label>Email<input name="email" type="email" required></label>
         <label>Password (10+ characters)<div class="password-wrap"><input name="password" type="password" minlength="10" required><button type="button" class="toggle-pass" data-toggle-password>Show</button></div></label>
-        <label>Assigned sections (teachers)<select name="sections" multiple size="6">${opt(sections, 'id', 'section_name')}</select></label>
-      </form><p class="tiny muted">Email is required for admin and teacher accounts.</p>`);
-      submit = async d => { const fd = $('#modalForm'); d.sections = [...fd.sections.selectedOptions].map(x => Number(x.value)); await post('/api/staff/users', d); await loadData(); go('accounts'); };
+        <label id="staffSectionLabel">Assigned section<select name="section_id" id="staffSectionSelect"><option value="">Select section (optional for Administrator/Guidance Counselor)</option>${sections.map(s => `<option value="${s.id}">${esc((s.school_year||'') + (s.school_year?' · ':'') + 'Grade ' + (s.grade_level||'') + ' ' + (s.section_name||''))}</option>`).join('')}</select></label>
+        <p class="tiny muted">Teacher and Class Adviser accounts require exactly one section. Each section can have only one Class Adviser account per school year; creating a new section/school year allows creating a new Class Adviser for it.</p>
+      </form><p class="tiny muted">Email is required for staff accounts. Teachers can be assigned to one section only.</p>`);
+      const staffRoleSel = $('#staffRoleSelect');
+      const staffSecSel = $('#staffSectionSelect');
+      const syncStaffSectionReq = () => {
+        const isTeacher = staffRoleSel?.value === 'teacher';
+        if (staffSecSel) {
+          staffSecSel.required = isTeacher;
+          staffSecSel.innerHTML = `<option value="">${isTeacher ? 'Select section (required for teachers)' : 'Select section (optional)'}</option>${opt(sections, 'id', 'section_name')}`;
+        }
+      };
+      staffRoleSel?.addEventListener('change', syncStaffSectionReq);
+      syncStaffSectionReq();
+      submit = async d => { await post('/api/staff/users', d); await loadData(); go('accounts'); };
       break;
 
     case 'offense':
@@ -661,17 +684,17 @@ function openModal(kind, id) {
         <label>First name<input name="first" required></label>
         <label>Last name<input name="last" required></label>
         <label>Grade<input name="grade" required></label>
-        <label>Section<select name="sectionId" id="studentSectionSelect" required>${sections.map(s => `<option value="${s.id}" data-grade="${esc(s.grade_level||'')}" data-track-id="${esc(s.track_id||'')}" data-strand-id="${esc(s.strand_id||'')}">G${esc(s.grade_level)} · ${esc(s.section_name)}</option>`).join('')}</select></label>
+        <label>Section<select name="sectionId" id="studentSectionSelect" required>${sections.map(s => `<option value="${s.id}" data-grade="${esc(s.grade_level||'')}" data-track-id="${esc(s.track_id||'')}" data-strand-id="${esc(s.strand_id||'')}">G${esc(s.grade_level)} � ${esc(s.section_name)}</option>`).join('')}</select></label>
         <div id="stuTsContainer"></div>
         <label>Guardian name<input name="guardian_name"></label>
         <label>Guardian contact<input name="guardian_contact"></label>
-      </form><p class="tiny muted">Track/strand fields are shown for Grades 11–12 only when configured and enabled by admin.</p>`);
+      </form><p class="tiny muted">Track/strand fields are shown for Grades 11�12 only when configured and enabled by admin.</p>`);
       wireGradeTrackStrand($('#modalForm'), 'stu');
       submit = async d => { await post('/api/students', d); await loadData(); go('students'); };
       break;
 
     case 'recordCase': {
-      const studentOptions = students.map(x => `<option value="${x.id}" data-guardian-name="${esc(x.guardian_name||'')}" data-guardian-contact="${esc(x.guardian_contact||'')}">${esc((x.last_name||'') + ', ' + (x.first_name||'') + ' · G' + (x.grade_level||'') + ' ' + (x.section_name||'') + (x.student_number ? ' · ' + x.student_number : ''))}</option>`).join('');
+      const studentOptions = students.map(x => `<option value="${x.id}" data-guardian-name="${esc(x.guardian_name||'')}" data-guardian-contact="${esc(x.guardian_contact||'')}">${esc((x.last_name||'') + ', ' + (x.first_name||'') + ' � G' + (x.grade_level||'') + ' ' + (x.section_name||'') + (x.student_number ? ' � ' + x.student_number : ''))}</option>`).join('');
       m = modal('Record violation', `<form id="modalForm">
         <label>Case number<input name="caseNumber" placeholder="SV-2026-0001" required></label>
         <label>Student<select name="studentId" id="caseStudentId" required><option value="">Select student</option>${studentOptions}</select></label>
@@ -687,14 +710,14 @@ function openModal(kind, id) {
         <label>Community service task/type<input name="community_service_type" placeholder="e.g. Campus cleanup"></label>
         <label>Required service hours<input name="required_service_hours" id="caseReqHours" type="number" min="0" step="0.25" value="0"></label>
         <label>Completed service hours<input name="completed_service_hours" id="caseDoneHours" type="number" min="0" step="0.25" value="0"></label>
-        <div class="tiny muted" id="caseHoursInfo">Remaining: 0.00h · Status: none (0 required hours)</div>
-      </form><p class="tiny muted">Guardian fields auto-populate from the selected student profile when available but can be overridden. Negative hours are rejected. Over-cap completed hours are allowed and status becomes completed when completed ≥ required (and required &gt; 0).</p>`);
+        <div class="tiny muted" id="caseHoursInfo">Remaining: 0.00h � Status: none (0 required hours)</div>
+      </form><p class="tiny muted">Guardian fields auto-populate from the selected student profile when available but can be overridden. Negative hours are rejected. Over-cap completed hours are allowed and status becomes completed when completed = required (and required &gt; 0).</p>`);
       const updateHoursInfo = () => {
         const req = Math.max(0, Number($('#caseReqHours')?.value || 0));
         const done = Math.max(0, Number($('#caseDoneHours')?.value || 0));
         const remaining = Math.max(0, req - done);
         const status = req <= 0 ? 'none' : (done >= req ? 'completed' : (done > 0 ? 'in_progress' : 'pending'));
-        const el = $('#caseHoursInfo'); if (el) el.textContent = `Remaining: ${remaining.toFixed(2)}h · Status: ${status}`;
+        const el = $('#caseHoursInfo'); if (el) el.textContent = `Remaining: ${remaining.toFixed(2)}h � Status: ${status}`;
       };
       $('#caseStudentId') && ($('#caseStudentId').onchange = () => {
         const optSel = $('#caseStudentId').selectedOptions[0];
@@ -710,7 +733,7 @@ function openModal(kind, id) {
     }
 
     case 'service':
-      m = modal('Assign community service (tracker)', `<form id="modalForm"><label>Student<select name="studentId" required>${students.map(x => `<option value="${x.id}">${esc((x.last_name||'')+', '+(x.first_name||'')+' · G'+(x.grade_level||'')+' '+(x.section_name||''))}</option>`).join('')}</select></label><label>School year<select name="yearId" required>${opt(years,'id','label')}</select></label><label>Required service days<input name="days" type="number" min="0" value="1"></label><label>Required hours<input name="hours" type="number" min="0" step="0.5" value="2"></label><label>Start date<input name="startDate" type="date"></label><label>Due date<input name="dueDate" type="date"></label><label>Notes<textarea name="notes"></textarea></label></form>`);
+      m = modal('Assign community service (tracker)', `<form id="modalForm"><label>Student<select name="studentId" required>${students.map(x => `<option value="${x.id}">${esc((x.last_name||'')+', '+(x.first_name||'')+' � G'+(x.grade_level||'')+' '+(x.section_name||''))}</option>`).join('')}</select></label><label>School year<select name="yearId" required>${opt(years,'id','label')}</select></label><label>Required service days<input name="days" type="number" min="0" value="1"></label><label>Required hours<input name="hours" type="number" min="0" step="0.5" value="2"></label><label>Start date<input name="startDate" type="date"></label><label>Due date<input name="dueDate" type="date"></label><label>Notes<textarea name="notes"></textarea></label></form>`);
       submit = async d => { await post('/api/community-service', d); await loadData(); go('community'); };
       break;
 
@@ -757,16 +780,16 @@ function openCaseDetails(id) {
   if (!item) return toast('Case not found.');
   const remaining = Math.max(0, hoursNum(item.required_service_hours) - hoursNum(item.completed_service_hours));
   const body = `
-    <p><strong>Student:</strong> ${esc(item.first_name||'')} ${esc(item.last_name||'')} (${esc(item.student_number||'—')})</p>
-    <p><strong>Section:</strong> G${esc(item.grade_level||'')} · ${esc(item.section_name||'')} ${item.strand_name || item.section_strand_text || item.student_strand_name ? `· ${esc(item.strand_name || item.section_strand_text || item.student_strand_name)}` : ''}</p>
+    <p><strong>Student:</strong> ${esc(item.first_name||'')} ${esc(item.last_name||'')} (${esc(item.student_number||'�')})</p>
+    <p><strong>Section:</strong> G${esc(item.grade_level||'')} � ${esc(item.section_name||'')} ${item.strand_name || item.section_strand_text || item.student_strand_name ? `� ${esc(item.strand_name || item.section_strand_text || item.student_strand_name)}` : ''}</p>
     <p><strong>Offense:</strong> ${esc(item.offense||'')} <span class="tiny muted">(${esc(item.severity||'')})</span></p>
-    <p><strong>Incident:</strong> ${fmtDate(item.incident_date)} ${esc(item.incident_time||'')} ${item.location ? `· ${esc(item.location)}` : ''}</p>
+    <p><strong>Incident:</strong> ${fmtDate(item.incident_date)} ${esc(item.incident_time||'')} ${item.location ? `� ${esc(item.location)}` : ''}</p>
     <p><strong>Status:</strong> ${badge(item.status||'')}</p>
-    <p><strong>Description:</strong><br>${esc(item.description||'—')}</p>
-    <p><strong>Evidence:</strong><br>${esc(item.evidence_notes||'—')}</p>
+    <p><strong>Description:</strong><br>${esc(item.description||'�')}</p>
+    <p><strong>Evidence:</strong><br>${esc(item.evidence_notes||'�')}</p>
     <hr>
-    <p><strong>Guardian:</strong> ${esc(item.guardian_name||'—')} ${item.guardian_contact ? `· ${esc(item.guardian_contact)}` : ''}</p>
-    <p><strong>Community service:</strong> ${esc(item.community_service_type||'—')} · Required ${hoursNum(item.required_service_hours).toFixed(2)}h · Completed ${hoursNum(item.completed_service_hours).toFixed(2)}h · Remaining ${remaining.toFixed(2)}h · Status ${badge(item.service_status||'none')}</p>`;
+    <p><strong>Guardian:</strong> ${esc(item.guardian_name||'�')} ${item.guardian_contact ? `� ${esc(item.guardian_contact)}` : ''}</p>
+    <p><strong>Community service:</strong> ${esc(item.community_service_type||'�')} � Required ${hoursNum(item.required_service_hours).toFixed(2)}h � Completed ${hoursNum(item.completed_service_hours).toFixed(2)}h � Remaining ${remaining.toFixed(2)}h � Status ${badge(item.service_status||'none')}</p>`;
   const m = modal(`Case ${item.case_number}`, body);
   if (me && me.role === 'admin') {
     const footer = m.querySelector('.modal-footer');
@@ -787,7 +810,7 @@ function openEditStudent(id) {
     <label>First name<input name="first_name" value="${esc(s.first_name||'')}" required></label>
     <label>Last name<input name="last_name" value="${esc(s.last_name||'')}" required></label>
     <label>Grade<input name="grade_level" value="${esc(s.grade_level||'')}" required></label>
-    <label>Section<select name="section_id" required>${sections.map(sec => `<option value="${sec.id}" ${String(sec.id)===String(s.section_id)?'selected':''}>G${esc(sec.grade_level)} · ${esc(sec.section_name)}</option>`).join('')}</select></label>
+    <label>Section<select name="section_id" required>${sections.map(sec => `<option value="${sec.id}" ${String(sec.id)===String(s.section_id)?'selected':''}>G${esc(sec.grade_level)} � ${esc(sec.section_name)}</option>`).join('')}</select></label>
     <div id="editStuTsContainer"></div>
     <label>Guardian name<input name="guardian_name" value="${esc(s.guardian_name||'')}"></label>
     <label>Guardian contact<input name="guardian_contact" value="${esc(s.guardian_contact||'')}"></label>
@@ -803,8 +826,8 @@ function openReassignStudent(id) {
   const s = students.find(x => String(x.id) === String(id));
   if (!s) return toast('Student not found.');
   const m = modal('Reassign student section', `<form id="modalForm">
-    <p><strong>${esc((s.last_name||'')+', '+(s.first_name||''))}</strong> · current G${esc(s.grade_level||'')} ${esc(s.section_name||'')}</p>
-    <label>Target section<select name="section_id" id="reassignSection" required><option value="">Select section</option>${sections.map(sec => `<option value="${sec.id}" data-grade="${esc(sec.grade_level||'')}" data-track-id="${esc(sec.track_id||'')}" data-strand-id="${esc(sec.strand_id||'')}">G${esc(sec.grade_level)} · ${esc(sec.section_name)}${sec.school_year ? ' · '+esc(sec.school_year) : ''}</option>`).join('')}</select></label>
+    <p><strong>${esc((s.last_name||'')+', '+(s.first_name||''))}</strong> � current G${esc(s.grade_level||'')} ${esc(s.section_name||'')}</p>
+    <label>Target section<select name="section_id" id="reassignSection" required><option value="">Select section</option>${sections.map(sec => `<option value="${sec.id}" data-grade="${esc(sec.grade_level||'')}" data-track-id="${esc(sec.track_id||'')}" data-strand-id="${esc(sec.strand_id||'')}">G${esc(sec.grade_level)} � ${esc(sec.section_name)}${sec.school_year ? ' � '+esc(sec.school_year) : ''}</option>`).join('')}</select></label>
     <label>Grade (optional override)<input name="grade_level" placeholder="Defaults from target section"></label>
     <label>Track (optional)<select name="track_id" id="reassignTrack"><option value="">Use section/default</option>${trackOptions('', false)}</select></label>
     <label>Strand (optional)<select name="strand_id" id="reassignStrand"><option value="">Use section/default</option>${strandOptions('', '', false)}</select></label>
@@ -873,20 +896,23 @@ function openEditStrand(id) {
 }
 
 async function openAssignTeacher(id) {
-  const teacher = users.find(u => String(u.id) === String(id));
-  if (!teacher) return toast('Teacher not found.');
+  const staff = users.find(u => String(u.id) === String(id));
+  if (!staff) return toast('User not found.');
   let assigned = [];
   try { assigned = await get(`/api/teachers/${id}/sections`); } catch (e) { return toast(e.message); }
-  const assignedIds = new Set(assigned.map(x => String(x.section_id)));
-  const opts = sections.map(s => `<option value="${s.id}" ${assignedIds.has(String(s.id)) ? 'selected' : ''}>G${esc(s.grade_level)} · ${esc(s.section_name)}</option>`).join('');
-  const m = modal(`Assign sections · ${teacher.full_name}`, `<form id="modalForm"><label>Sections<select name="sectionIds" multiple size="8">${opts}</select></label></form>`);
+  const assignedIds = new Set(assigned.map(x => String(x.section_id || x.id)));
+  const isSingleSection = staff.role === 'teacher' || staff.role === 'class_adviser';
+  const opts = sections.map(s => `<option value="${s.id}" ${assignedIds.has(String(s.id)) ? 'selected' : ''}>${esc((s.school_year || '') + (s.school_year ? ' · ' : ''))}G${esc(s.grade_level)} · ${esc(s.section_name)}</option>`).join('');
+  const note = staff.role === 'class_adviser'
+    ? '<p class="tiny muted">Class Adviser accounts are limited to one section per school year, and each section can have only one Class Adviser account. Creating a new section/school year allows a new adviser account for that section.</p>'
+    : (staff.role === 'teacher' ? '<p class="tiny muted">Teacher accounts can be assigned to only one section.</p>' : '');
+  const m = modal(`Assign section${isSingleSection ? '' : 's'} · ${esc(staff.full_name)}`, `<form id="modalForm"><label>${isSingleSection ? 'Assigned section (one only)' : 'Assigned sections'}<select name="sectionIds" ${isSingleSection ? '' : 'multiple'} size="8">${isSingleSection ? '<option value="">Select section</option>' : ''}${opts}</select></label>${note}</form>`);
   $('#modalSubmit').onclick = async () => {
     const f = $('#modalForm'); if (!f) return;
-    const sections = [...f.sectionIds.selectedOptions].map(o => Number(o.value));
-    try { await put(`/api/teachers/${id}/sections`, { sections }); m.remove(); toast('Teacher sections updated'); } catch (e) { toast(e.message); }
+    const selected = isSingleSection ? [Number(f.sectionIds.value)].filter(Boolean) : [...f.sectionIds.selectedOptions].map(o => Number(o.value));
+    try { await put(`/api/teachers/${id}/sections`, { sections: selected }); m.remove(); await loadData(); go('accounts'); toast('Section assignment updated'); } catch (e) { toast(e.message); }
   };
 }
-
 function openEditServiceLog(id) {
   const log = (calendarState.selectedItems || []).find(x => String(x.id) === String(id));
   if (!log) return toast('Service log not found in selected day. Select the date again.');
@@ -950,9 +976,9 @@ function attachClickHandlers() {
     const assignBtn = e.target.closest('[data-assign]');
     if (assignBtn) { openAssignTeacher(assignBtn.dataset.assign); return; }
     const approveBtn = e.target.closest('[data-approve]');
-    if (approveBtn) { try { await post(`/api/teachers/${approveBtn.dataset.approve}/approve`, {}); await loadData(); go('accounts'); toast('Account approved'); } catch (err) { toast(err.message); } return; }
+    if (approveBtn) { try { await post(`/api/admin/approve/${approveBtn.dataset.approve}`, {}); await loadData(); go('accounts'); toast('Staff account request approved'); } catch (err) { toast(err.message); } return; }
     const rejectBtn = e.target.closest('[data-reject]');
-    if (rejectBtn) { try { await post(`/api/teachers/${rejectBtn.dataset.reject}/reject`, {}); await loadData(); go('accounts'); toast('Account rejected'); } catch (err) { toast(err.message); } return; }
+    if (rejectBtn) { try { await post(`/api/admin/reject/${rejectBtn.dataset.reject}`, {}); await loadData(); go('accounts'); toast('Staff account request rejected'); } catch (err) { toast(err.message); } return; }
     const toggleUserBtn = e.target.closest('[data-toggle-user]');
     if (toggleUserBtn) { try { await patch(`/api/users/${toggleUserBtn.dataset.toggleUser}/status`, { status: toggleUserBtn.dataset.status }); await loadData(); go('accounts'); toast('Account updated'); } catch (err) { toast(err.message); } return; }
     const attendanceBtn = e.target.closest('[data-attendance]');
@@ -970,6 +996,85 @@ function attachClickHandlers() {
   });
 }
 
+let signupOptionsCache = null;
+
+async function loadSignupOptions(force = false) {
+  if (signupOptionsCache && !force) return signupOptionsCache;
+  try {
+    signupOptionsCache = await get('/api/public/signup-options');
+  } catch (e) {
+    signupOptionsCache = { years: [], sections: [], tracks: [], strands: [], trackStrandEnabled: false };
+  }
+  return signupOptionsCache;
+}
+
+function populateSignupOptionsUI() {
+  const opts = signupOptionsCache || { years: [], sections: [], tracks: [], strands: [], trackStrandEnabled: false };
+  const yearSel = $('#signupSchoolYear');
+  const gradeSel = $('#signupGradeLevel');
+  const sectionSel = $('#signupSection');
+  const trackSel = $('#signupTrack');
+  const strandSel = $('#signupStrand');
+  const tsWrap = $('#signupTrackStrandWrap');
+  if (!yearSel || !gradeSel || !sectionSel) return;
+
+  const years = Array.isArray(opts.years) ? opts.years : [];
+  const sections = Array.isArray(opts.sections) ? opts.sections : [];
+  const tracks = Array.isArray(opts.tracks) ? opts.tracks : [];
+  const strands = Array.isArray(opts.strands) ? opts.strands : [];
+
+  const prevYear = yearSel.value;
+  const prevGrade = gradeSel.value;
+  const prevSection = sectionSel.value;
+  const prevTrack = trackSel?.value || '';
+  const prevStrand = strandSel?.value || '';
+
+  yearSel.innerHTML = `<option value="">Select school year</option>` + years.map(y => `<option value="${esc(y.id)}">${esc(y.label || '')}</option>`).join('');
+  if (prevYear && years.some(y => String(y.id) === String(prevYear))) yearSel.value = prevYear;
+  else if (years.length === 1) yearSel.value = String(years[0].id);
+
+  const yearId = String(yearSel.value || '');
+  const grade = String(gradeSel.value || prevGrade || '');
+  const filteredSections = sections.filter(s => (!yearId || String(s.school_year_id) === yearId) && (!grade || String(s.grade_level) === grade));
+  sectionSel.innerHTML = `<option value="">${yearId && grade ? 'Select section' : 'Select grade and school year first'}</option>` + filteredSections.map(s => `<option value="${esc(s.id)}">${esc(s.section_name || '')} (${esc(s.grade_level || '')})</option>`).join('');
+  if (prevSection && filteredSections.some(s => String(s.id) === String(prevSection))) sectionSel.value = prevSection;
+
+  const isSenior = grade === '11' || grade === '12';
+  const showTS = isSenior && !!opts.trackStrandEnabled;
+  if (tsWrap) tsWrap.classList.toggle('hidden', !showTS);
+  if (trackSel) {
+    trackSel.innerHTML = `<option value="">Select track${showTS ? '' : ' (if applicable)'}</option>` + tracks.map(t => `<option value="${esc(t.id)}">${esc(t.name || t.code || '')}</option>`).join('');
+    trackSel.required = showTS;
+    if (prevTrack && tracks.some(t => String(t.id) === String(prevTrack))) trackSel.value = prevTrack;
+  }
+  const selectedTrackId = String(trackSel?.value || '');
+  const filteredStrands = strands.filter(st => !selectedTrackId || String(st.track_id || '') === selectedTrackId);
+  if (strandSel) {
+    strandSel.innerHTML = `<option value="">Select strand${showTS ? '' : ' (if applicable)'}</option>` + filteredStrands.map(st => `<option value="${esc(st.id)}">${esc(st.name || st.code || '')}${st.track_name ? ` (${esc(st.track_name)})` : ''}</option>`).join('');
+    strandSel.required = showTS;
+    if (prevStrand && filteredStrands.some(st => String(st.id) === String(prevStrand))) strandSel.value = prevStrand;
+  }
+
+  const staffRoleSel = $('#staffRequestRole');
+  const staffSecWrap = $('#staffRequestSectionWrap');
+  const staffSecSel = $('#staffRequestSection');
+  if (staffRoleSel && staffSecWrap && staffSecSel) {
+    const needsSection = staffRoleSel.value === 'class_adviser';
+    staffSecWrap.classList.toggle('hidden', !needsSection);
+    staffSecSel.required = needsSection;
+    const allSections = (sections || []).slice().sort((a, b) =>
+      String(a.school_year || a.school_year_label || '').localeCompare(String(b.school_year || b.school_year_label || '')) ||
+      String(a.grade_level || '').localeCompare(String(b.grade_level || ''), undefined, { numeric: true }) ||
+      String(a.section_name || a.name || '').localeCompare(String(b.section_name || b.name || ''))
+    );
+    const yearLabelById = new Map((years || []).map(y => [String(y.id), y.label || '']));
+    staffSecSel.innerHTML = `<option value="">Select section</option>` + allSections.map(s => {
+      const sy = s.school_year || s.school_year_label || yearLabelById.get(String(s.school_year_id || '')) || '';
+      return `<option value="${esc(s.id)}">${esc(sy ? sy + ' · ' : '')}Grade ${esc(s.grade_level || '')} ${esc(s.section_name || s.name || '')}</option>`;
+    }).join('');
+  }
+}
+
 function switchAuthTab(tab) {
   const normalized = tab === 'student-register' ? 'studentRegister' : tab;
   $$('.auth-card .tab, .tabs .tab').forEach(t => {
@@ -980,6 +1085,9 @@ function switchAuthTab(tab) {
   $('#loginForm')?.classList.toggle('hidden', normalized !== 'login');
   $('#studentRegisterForm')?.classList.toggle('hidden', normalized !== 'studentRegister');
   $('#registerForm')?.classList.toggle('hidden', normalized !== 'register');
+  if (normalized === 'studentRegister' || normalized === 'register') {
+    loadSignupOptions().then(populateSignupOptionsUI).catch(() => {});
+  }
 }
 
 function openAuthModal(tab = 'login') {
@@ -1013,46 +1121,13 @@ function showApp() {
   $('#app')?.classList.remove('hidden');
   if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
   if ($('#userRole')) {
-    const labels = { admin: 'Verified administrator', teacher: 'Teacher', adviser: 'Adviser', student: 'Student' };
+    const labels = { admin: 'Administrator', teacher: 'Teacher', guidance_counselor: 'Guidance Counselor', class_adviser: 'Class Adviser', student: 'Student' };
     $('#userRole').textContent = labels[me?.role] || me?.role || 'User';
   }
   if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
   renderNav();
 }
 
-function renderLookupResult(data) {
-  const el = $('#publicLookupResult');
-  if (!el) return;
-  if (!data) { el.innerHTML = ''; return; }
-  const s = data.student || {};
-  const t = data.totals || {};
-  const rows = (data.violations || []).map(v => `
-    <tr>
-      <td>${esc(v.case_number || '—')}</td>
-      <td>${esc(fmtDate((v.incident_date || '').slice(0,10)))}</td>
-      <td>${esc(v.offense || 'Violation')}</td>
-      <td>${badge(v.status || 'Reported')}</td>
-      <td>${esc(v.service_status || 'none')}</td>
-      <td>${Number(v.completed_hours || 0)}/${Number(v.required_hours || 0)} hrs</td>
-    </tr>`).join('');
-  el.innerHTML = `
-    <div class="lookup-card">
-      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
-        <div>
-          <h3 style="margin:0 0 4px;color:#163a63">${esc(s.name || 'Student')}</h3>
-          <div class="muted tiny">LRN: ${esc(s.student_number || '—')} · Grade ${esc(s.grade_level || '—')} · ${esc(s.section_name || '—')} ${s.school_year ? '· ' + esc(s.school_year) : ''}</div>
-        </div>
-        <div class="tiny muted">Public record summary (no login required)</div>
-      </div>
-      <div class="lookup-grid">
-        <div class="lookup-item"><span>Total cases</span><strong>${Number(t.cases || 0)}</strong></div>
-        <div class="lookup-item"><span>Open cases</span><strong>${Number(t.open || 0)}</strong></div>
-        <div class="lookup-item"><span>CS pending</span><strong>${Number(t.servicePending || 0)}</strong></div>
-        <div class="lookup-item"><span>Hours completed</span><strong>${Number(t.completed || 0)}/${Number(t.required || 0)}</strong></div>
-      </div>
-      <div style="margin-top:14px">${rows ? table(['Case','Date','Offense','Status','Service','Hours'], rows) : '<div class="note" style="margin:0">No violation records found for this student.</div>'}</div>
-    </div>`;
-}
 
 function attachAuthHandlers() {
   $$('.auth-card .tab, .tabs .tab').forEach(t => t.addEventListener('click', () => switchAuthTab(t.dataset.authTab || t.dataset.auth)));
@@ -1075,12 +1150,19 @@ function attachAuthHandlers() {
     } catch (err) { toast(err.message); }
   });
 
+  $('#signupGradeLevel')?.addEventListener('change', populateSignupOptionsUI);
+  $('#signupSchoolYear')?.addEventListener('change', populateSignupOptionsUI);
+  $('#signupTrack')?.addEventListener('change', populateSignupOptionsUI);
+
   $('#studentRegisterForm')?.addEventListener('submit', async e => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(e.target).entries());
     try {
-      await post('/api/auth/register', d);
-      e.target.reset(); switchAuthTab('login'); toast('Student account created. You can sign in now.');
+      const r = await post('/api/auth/register', d);
+      e.target.reset();
+      populateSignupOptionsUI();
+      switchAuthTab('login');
+      toast(r.message || 'Student account created. You can sign in now.');
     } catch (err) { toast(err.message); }
   });
 
@@ -1089,7 +1171,8 @@ function attachAuthHandlers() {
     const d = Object.fromEntries(new FormData(e.target).entries());
     try {
       const r = await post('/api/auth/register-admin', d);
-      e.target.reset(); toast(r.message || 'Admin registration submitted for verification.');
+      e.target.reset();
+      toast(r.message || 'Staff account request submitted for administrator approval.');
     } catch (err) { toast(err.message); }
   });
 }
@@ -1100,19 +1183,6 @@ async function init() {
 
   $$('[data-open-auth]').forEach(btn => btn.addEventListener('click', () => openAuthModal(btn.dataset.openAuth || 'login')));
   $$('[data-close-auth]').forEach(btn => btn.addEventListener('click', closeAuthModal));
-  $('#publicLookupForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const lrn = String(new FormData(e.target).get('lrn') || '').trim();
-    if (!lrn) { toast('Enter an LRN/student number.'); return; }
-    const out = $('#publicLookupResult');
-    if (out) out.innerHTML = '<div class="note">Searching student record...</div>';
-    try {
-      const data = await get('/api/public/student-lookup?lrn=' + encodeURIComponent(lrn));
-      renderLookupResult(data);
-    } catch (err) {
-      if (out) out.innerHTML = `<div class="note" style="border-color:#f2caca;background:#fff5f5;color:#8b2f2f">${esc(err.message || 'Unable to find that record.')}</div>`;
-    }
-  });
 
   try {
     const status = await get('/api/auth/setup-status');

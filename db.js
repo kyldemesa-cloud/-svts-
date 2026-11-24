@@ -28,25 +28,28 @@ function migrateUsersTableIfNeeded() {
   const sql = tableSql('users');
   if (!sql) return;
   const needsEmailNullable = /email\s+TEXT\s+NOT\s+NULL/i.test(sql);
-  const needsStudentRole = !/role\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(role\s+IN\s*\('admin','teacher','student'\)\)/i.test(sql);
   const needsEmailUniqueInline = /email\s+TEXT[\s\S]*?\bUNIQUE\b/i.test(sql);
-  if (!needsEmailNullable && !needsStudentRole && !needsEmailUniqueInline) return;
+  const needsStaffRoles = !/guidance_counselor/i.test(sql) || !/class_adviser/i.test(sql);
+  const needsRequestedSection = !/requested_section_id/i.test(sql);
+  if (!needsEmailNullable && !needsEmailUniqueInline && !needsStaffRoles && !needsRequestedSection) return;
 
   db.pragma('foreign_keys = OFF');
   const tx = db.transaction(() => {
+    const hasRequestedSection = /requested_section_id/i.test(sql);
     db.exec(`
       CREATE TABLE IF NOT EXISTS users_migrated (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         full_name TEXT NOT NULL,
         email TEXT,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('admin','teacher','student')),
+        role TEXT NOT NULL CHECK(role IN ('admin','teacher','student','guidance_counselor','class_adviser')),
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','verified','rejected','suspended')),
+        requested_section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL,
         verified_by INTEGER REFERENCES users(id), verified_at TEXT,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-      INSERT INTO users_migrated(id,full_name,email,password_hash,role,status,verified_by,verified_at,created_at)
-      SELECT id,full_name,email,password_hash,role,status,verified_by,verified_at,created_at FROM users;
+      INSERT INTO users_migrated(id,full_name,email,password_hash,role,status,requested_section_id,verified_by,verified_at,created_at)
+      SELECT id,full_name,NULLIF(email,''),password_hash,role,status,${hasRequestedSection ? 'requested_section_id' : 'NULL'},verified_by,verified_at,created_at FROM users;
       DROP TABLE users;
       ALTER TABLE users_migrated RENAME TO users;
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_unique ON users(email) WHERE email IS NOT NULL;
@@ -61,6 +64,7 @@ function migrateUsersTableIfNeeded() {
 
 function ensureMigrations() {
   migrateUsersTableIfNeeded();
+  ensureColumn('users', 'requested_section_id', 'INTEGER REFERENCES sections(id) ON DELETE SET NULL');
 
   // sections: dynamic tracks/strands and explicit school year label
   ensureColumn('sections', 'track_id', 'INTEGER REFERENCES tracks(id) ON DELETE SET NULL');

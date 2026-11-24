@@ -1,4 +1,4 @@
-﻿const $ = s => document.querySelector(s);
+const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 
 let me = null;
@@ -78,7 +78,7 @@ function showApp() {
   $('#app')?.classList.remove('hidden');
   if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
   if ($('#userRole')) {
-    const labels = { admin: 'Verified administrator', teacher: 'Teacher', adviser: 'Adviser', student: 'Student' };
+    const labels = { admin: 'Administrator', teacher: 'Teacher', adviser: 'Adviser', guidance_counselor: 'Guidance Counselor', class_adviser: 'Class Adviser', student: 'Student' };
     $('#userRole').textContent = labels[me?.role] || me?.role || 'User';
   }
   if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
@@ -410,8 +410,15 @@ function renderSections() {
 }
 
 function renderAccounts() {
-  const pendingRows = pending.map(p => `<tr><td>${esc(p.full_name)}</td><td>${esc(p.email)}</td><td>${badge(p.role || 'admin')}</td><td>${fmtDate((p.created_at||'').slice(0,10))}</td><td class="actions"><button class="primary smallbtn" data-approve="${p.id}">Verify</button><button class="ghost smallbtn" data-reject="${p.id}">Reject</button></td></tr>`).join('');
-  const userRows = users.map(u => `<tr><td>${esc(u.full_name)}</td><td>${esc(u.email || '—')}</td><td>${badge(u.role)}</td><td>${badge(u.status)}</td><td>${['teacher','adviser'].includes(u.role) ? `<button class="primary smallbtn" data-assign="${u.id}">Sections</button> ` : ''}${u.id === me.id ? 'Current account' : `<button class="ghost smallbtn" data-toggle-user="${u.id}" data-status="${u.status === 'suspended' ? 'verified' : 'suspended'}">${u.status === 'suspended' ? 'Reactivate' : 'Suspend'}</button>`}</td></tr>`).join('');
+  const pendingRows = pending.map(p => {
+    const roleName = p.role || 'admin';
+    const roleLabel = ({admin:'Administrator', adviser:'Adviser', guidance_counselor:'Guidance Counselor', class_adviser:'Class Adviser'})[roleName] || roleName;
+    const reqSec = (roleName === 'class_adviser' && (p.requested_section_name || p.requested_school_year))
+      ? `<div class="tiny muted">${esc(p.requested_school_year || '')}${p.requested_section_grade ? ' - Grade ' + esc(p.requested_section_grade) : ''}${p.requested_section_name ? ' ' + esc(p.requested_section_name) : ''}</div>`
+      : '';
+    return `<tr><td>${esc(p.full_name)}</td><td>${esc(p.email || '—')}</td><td>${badge(roleLabel)}${reqSec}</td><td>${fmtDate((p.created_at||'').slice(0,10))}</td><td class="actions"><button class="primary smallbtn" data-approve="${p.id}">Approve</button><button class="ghost smallbtn" data-reject="${p.id}">Reject</button></td></tr>`;
+  }).join('');
+  const userRows = users.map(u => `<tr><td>${esc(u.full_name)}</td><td>${esc(u.email || '—')}</td><td>${badge(u.role)}</td><td>${badge(u.status)}</td><td>${['teacher','adviser','guidance_counselor','class_adviser'].includes(u.role) ? `<button class="primary smallbtn" data-assign="${u.id}">Sections</button> ` : ''}${u.id === me.id ? 'Current account' : `<button class="ghost smallbtn" data-toggle-user="${u.id}" data-status="${u.status === 'suspended' ? 'verified' : 'suspended'}">${u.status === 'suspended' ? 'Reactivate' : 'Suspend'}</button>`}</td></tr>`).join('');
   $('#content').innerHTML =
     pageHead('Account management', '<div class="actions"><button class="primary" data-modal="teacher">+ Create teacher/adviser</button><button class="primary" data-modal="staffUser">+ Create admin/staff</button></div>') +
     `<h2 class="section-title">Pending admin/adviser approval requests</h2>${table(['Name','Email','Role','Registered','Review'], pendingRows)}` +
@@ -982,7 +989,6 @@ function switchAuthTab(tab) {
   $('#loginForm')?.classList.toggle('hidden', normalized !== 'login');
   $('#studentRegisterForm')?.classList.toggle('hidden', normalized !== 'studentRegister');
   $('#registerForm')?.classList.toggle('hidden', normalized !== 'register');
-  $('#adviserRegisterForm')?.classList.toggle('hidden', normalized !== 'adviserRegister');
 }
 
 function openAuthModal(tab = 'login') {
@@ -993,7 +999,6 @@ function openAuthModal(tab = 'login') {
     $('#loginForm')?.classList.add('hidden');
     $('#studentRegisterForm')?.classList.add('hidden');
     $('#registerForm')?.classList.add('hidden');
-    $('#adviserRegisterForm')?.classList.add('hidden');
     $('.auth-modal-card .tabs')?.classList.add('hidden');
   } else {
     if ($('#setupForm')) $('#setupForm').classList.add('hidden');
@@ -1017,48 +1022,19 @@ function showApp() {
   $('#app')?.classList.remove('hidden');
   if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
   if ($('#userRole')) {
-    const labels = { admin: 'Verified administrator', teacher: 'Teacher', adviser: 'Adviser', student: 'Student' };
+    const labels = { admin: 'Administrator', teacher: 'Teacher', adviser: 'Adviser', guidance_counselor: 'Guidance Counselor', class_adviser: 'Class Adviser', student: 'Student' };
     $('#userRole').textContent = labels[me?.role] || me?.role || 'User';
   }
   if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
   renderNav();
 }
 
-function renderLookupResult(data) {
-  const el = $('#publicLookupResult');
-  if (!el) return;
-  if (!data) { el.innerHTML = ''; return; }
-  const s = data.student || {};
-  const t = data.totals || {};
-  const rows = (data.violations || []).map(v => `
-    <tr>
-      <td>${esc(v.case_number || '—')}</td>
-      <td>${esc(fmtDate((v.incident_date || '').slice(0,10)))}</td>
-      <td>${esc(v.offense || 'Violation')}</td>
-      <td>${badge(v.status || 'Reported')}</td>
-      <td>${esc(v.service_status || 'none')}</td>
-      <td>${Number(v.completed_hours || 0)}/${Number(v.required_hours || 0)} hrs</td>
-    </tr>`).join('');
-  el.innerHTML = `
-    <div class="lookup-card">
-      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start">
-        <div>
-          <h3 style="margin:0 0 4px;color:#163a63">${esc(s.name || 'Student')}</h3>
-          <div class="muted tiny">LRN: ${esc(s.student_number || '—')} · Grade ${esc(s.grade_level || '—')} · ${esc(s.section_name || '—')} ${s.school_year ? '· ' + esc(s.school_year) : ''}</div>
-        </div>
-        <div class="tiny muted">Public record summary (no login required)</div>
-      </div>
-      <div class="lookup-grid">
-        <div class="lookup-item"><span>Total cases</span><strong>${Number(t.cases || 0)}</strong></div>
-        <div class="lookup-item"><span>Open cases</span><strong>${Number(t.open || 0)}</strong></div>
-        <div class="lookup-item"><span>CS pending</span><strong>${Number(t.servicePending || 0)}</strong></div>
-        <div class="lookup-item"><span>Hours completed</span><strong>${Number(t.completed || 0)}/${Number(t.required || 0)}</strong></div>
-      </div>
-      <div style="margin-top:14px">${rows ? table(['Case','Date','Offense','Status','Service','Hours'], rows) : '<div class="note" style="margin:0">No violation records found for this student.</div>'}</div>
-    </div>`;
-}
 
 function attachAuthHandlers() {
+  #signupGradeLevel?.addEventListener('change', populateSignupOptionsUI);
+  #signupSchoolYear?.addEventListener('change', populateSignupOptionsUI);
+  #signupTrack?.addEventListener('change', syncSignupStrandOptions);
+  #staffRequestRole?.addEventListener('change', populateSignupOptionsUI);
   $$('.auth-card .tab, .tabs .tab').forEach(t => t.addEventListener('click', () => switchAuthTab(t.dataset.authTab || t.dataset.auth)));
 
   $('#setupForm')?.addEventListener('submit', async e => {
@@ -1093,16 +1069,7 @@ function attachAuthHandlers() {
     const d = Object.fromEntries(new FormData(e.target).entries());
     try {
       const r = await post('/api/auth/register-admin', d);
-      e.target.reset(); toast(r.message || 'Admin registration submitted for verification.');
-    } catch (err) { toast(err.message); }
-  });
-
-  $('#adviserRegisterForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(e.target).entries());
-    try {
-      const r = await post('/api/auth/register-adviser', d);
-      e.target.reset(); toast(r.message || 'Adviser registration submitted for verification.');
+      e.target.reset(); toast(r.message || 'Staff account request submitted for administrator approval.');
     } catch (err) { toast(err.message); }
   });
 }
@@ -1113,19 +1080,6 @@ async function init() {
 
   $$('[data-open-auth]').forEach(btn => btn.addEventListener('click', () => openAuthModal(btn.dataset.openAuth || 'login')));
   $$('[data-close-auth]').forEach(btn => btn.addEventListener('click', closeAuthModal));
-  $('#publicLookupForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const lrn = String(new FormData(e.target).get('lrn') || '').trim();
-    if (!lrn) { toast('Enter an LRN/student number.'); return; }
-    const out = $('#publicLookupResult');
-    if (out) out.innerHTML = '<div class="note">Searching student record...</div>';
-    try {
-      const data = await get('/api/public/student-lookup?lrn=' + encodeURIComponent(lrn));
-      renderLookupResult(data);
-    } catch (err) {
-      if (out) out.innerHTML = `<div class="note" style="border-color:#f2caca;background:#fff5f5;color:#8b2f2f">${esc(err.message || 'Unable to find that record.')}</div>`;
-    }
-  });
 
   try {
     const status = await get('/api/auth/setup-status');
@@ -1149,3 +1103,14 @@ async function init() {
 }
 
 init();
+
+  const staffRoleSel = $('#staffRequestRole');
+  const staffSecWrap = $('#staffRequestSectionWrap');
+  const staffSecSel = $('#staffRequestSection');
+  if (staffRoleSel && staffSecWrap && staffSecSel) {
+    const needsSection = staffRoleSel.value === 'class_adviser';
+    staffSecWrap.classList.toggle('hidden', !needsSection);
+    staffSecSel.required = needsSection;
+    const allSections = (signupOptions.sections || []).slice().sort((a,b)=>String(a.school_year||'').localeCompare(String(b.school_year||'')) || String(a.grade_level||'').localeCompare(String(b.grade_level||''), undefined, {numeric:true}) || String(a.name||a.section_name||'').localeCompare(String(b.name||b.section_name||'')));
+    staffSecSel.innerHTML = '<option value="">Select section</option>' + allSections.map(sec => `<option value="${sec.id}">${esc(sec.school_year || 'School year')} - Grade ${esc(sec.grade_level)} ${esc(sec.name || sec.section_name || ('Section ' + sec.id))}</option>`).join('');
+  }
