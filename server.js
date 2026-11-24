@@ -386,6 +386,7 @@ app.post('/api/auth/register', async (req, res) => {
     const name = clean(req.body.name || req.body.full_name, 100);
     const password = String(req.body.password || '');
     const studentNo = clean(req.body.student_no || req.body.studentNumber, 40);
+    // Standard student sign-up ignores any submitted email.
     if (!name || !passwordStrong(password)) {
       return res.status(400).json({ error: 'Name and password of at least 10 characters are required.' });
     }
@@ -1057,16 +1058,18 @@ app.post('/api/staff/users', auth, admin, async (req, res) => {
 
 // --- Academic track/strand config ---
 app.get('/api/academic/track-strand-config', auth, verified, (req, res) => {
-  const tracks = db.prepare('SELECT id,code,name,is_active,created_at FROM tracks WHERE is_active=1 ORDER BY name,code').all();
-  const strands = db.prepare('SELECT s.id,s.track_id,s.code,s.name,s.is_active,s.created_at,t.name track_name,t.code track_code FROM strands s LEFT JOIN tracks t ON t.id=s.track_id WHERE s.is_active=1 ORDER BY s.name,s.code').all();
+  const all = req.query.all === '1' && req.session.user?.role === 'admin';
+  const tracks = db.prepare(`SELECT id,code,name,is_active,created_at FROM tracks ${all ? '' : 'WHERE is_active=1'} ORDER BY name,code`).all();
+  const strands = db.prepare(`SELECT s.id,s.track_id,s.code,s.name,s.is_active,s.created_at,t.name track_name,t.code track_code FROM strands s LEFT JOIN tracks t ON t.id=s.track_id ${all ? '' : 'WHERE s.is_active=1'} ORDER BY s.name,s.code`).all();
+  const enabled = tracks.some(t => t.is_active) || strands.some(s => s.is_active);
   res.json({
     tracks,
     strands,
     grades: {
-      '11': { enabled: tracks.length > 0 || strands.length > 0 },
-      '12': { enabled: tracks.length > 0 || strands.length > 0 }
+      '11': { enabled },
+      '12': { enabled }
     },
-    enabled: tracks.length > 0 || strands.length > 0
+    enabled
   });
 });
 
@@ -1081,6 +1084,22 @@ app.post('/api/academic/tracks', auth, admin, (req, res) => {
     res.json({ id: r.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Track code already exists.' : 'Unable to create track.' });
+  }
+});
+
+app.patch('/api/academic/tracks/:id', auth, admin, (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM tracks WHERE id=?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Track not found.' });
+    const code = req.body.code !== undefined ? clean(req.body.code, 40) : existing.code;
+    const name = req.body.name !== undefined ? clean(req.body.name, 120) : existing.name;
+    const isActive = req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : existing.is_active;
+    db.prepare('UPDATE tracks SET code=?, name=?, is_active=? WHERE id=?').run(code, name, isActive, id);
+    audit(req.session.user, 'Update track', 'track', id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Track code already exists.' : 'Unable to update track.' });
   }
 });
 
@@ -1375,12 +1394,16 @@ app.get('/api/exports/violations.xlsx', auth, verified, (req, res) => {
       SELECT v.case_number, st.student_number, st.first_name, st.last_name, st.grade_level,
              s.section_name, s.school_year, tr.name track_name, sd.name strand_name,
              o.name offense, o.severity, v.incident_date, v.status, v.service_status,
-             v.required_service_hours, v.completed_service_hours, v.guardian_name, v.guardian_contact, v.created_at
+             v.community_service_type, v.required_service_hours, v.completed_service_hours,
+             (CASE WHEN COALESCE(v.required_service_hours,0) > COALESCE(v.completed_service_hours,0)
+                   THEN ROUND(COALESCE(v.required_service_hours,0) - COALESCE(v.completed_service_hours,0), 2)
+                   ELSE 0 END) remaining_service_hours,
+             v.guardian_name, v.guardian_contact, v.created_at
       ${base}
       ORDER BY v.created_at DESC, v.id DESC
     `).all(...params);
-    const headers = ['Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Track','Strand','Offense','Severity','Incident Date','Status','Service Status','Required Service Hours','Completed Service Hours','Guardian Name','Guardian Contact','Created At'];
-    const data = rows.map(r => [r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.offense,r.severity,r.incident_date,r.status,r.service_status,r.required_service_hours,r.completed_service_hours,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
+    const headers = ['Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Track','Strand','Offense','Severity','Incident Date','Status','Service Status','Community Service Type','Required Service Hours','Completed Service Hours','Remaining Service Hours','Guardian Name','Guardian Contact','Created At'];
+    const data = rows.map(r => [r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.offense,r.severity,r.incident_date,r.status,r.service_status,r.community_service_type||'',r.required_service_hours,r.completed_service_hours,r.remaining_service_hours,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
     sendXlsx(res, 'violations.xlsx', headers, data);
   } catch (e) {
     res.status(500).json({ error: 'Unable to export violations.' });
@@ -1391,8 +1414,13 @@ app.get('/api/exports/community-service.xlsx', auth, verified, (req, res) => {
   try {
     const { sql, params } = buildCommunityServiceExportQuery(req);
     const rows = db.prepare(sql).all(...params);
-    const headers = ['Violation ID','Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Track','Strand','Service Type','Required Hours','Completed Hours','Service Status','Guardian Name','Guardian Contact','Created At'];
-    const data = rows.map(r => [r.violation_id,r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.community_service_type||'',r.required_service_hours,r.completed_service_hours,r.service_status,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
+    const headers = ['Violation ID','Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Track','Strand','Service Type','Required Hours','Completed Hours','Remaining Hours','Service Status','Guardian Name','Guardian Contact','Created At'];
+    const data = rows.map(r => {
+      const required = Number(r.required_service_hours || 0);
+      const completed = Number(r.completed_service_hours || 0);
+      const remaining = required > completed ? Math.round((required - completed) * 100) / 100 : 0;
+      return [r.violation_id,r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.community_service_type||'',r.required_service_hours,r.completed_service_hours,remaining,r.service_status,r.guardian_name||'',r.guardian_contact||'',r.created_at];
+    });
     sendXlsx(res, 'community-service.xlsx', headers, data);
   } catch (e) {
     res.status(500).json({ error: 'Unable to export community service.' });
