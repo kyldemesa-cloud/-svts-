@@ -27,9 +27,11 @@ async function api(url, opts = {}) {
   if (!r.ok) throw Error(d.error || 'Request failed');
   return d;
 }
+const get = (url) => api(url);
 const post = (url, data) => api(url, { method: 'POST', body: JSON.stringify(data) });
 const put = (url, data) => api(url, { method: 'PUT', body: JSON.stringify(data) });
 const patch = (url, data) => api(url, { method: 'PATCH', body: JSON.stringify(data) });
+const del = (url) => api(url, { method: 'DELETE' });
 
 function toast(msg) {
   const t = $('#toast');
@@ -71,15 +73,21 @@ function navItems() {
 }
 
 function showApp() {
-  $('#auth').classList.add('hidden');
-  $('#app').classList.remove('hidden');
-  $('#userName').textContent = me.full_name;
-  $('#userRole').textContent = me.role === 'admin' ? 'Verified administrator' : 'Teacher';
-  $('#userAvatar').textContent = initials(me.full_name);
+  $('#auth')?.classList.add('hidden');
+  $('#app')?.classList.remove('hidden');
+  if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
+  if ($('#userRole')) $('#userRole').textContent = me?.role === 'admin' ? 'Verified administrator' : 'Teacher';
+  if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
   renderNav();
 }
 function renderNav() {
-  $('#nav').innerHTML = navItems().map(([v, ico, t]) => `<button class="nav-btn ${view === v ? 'active' : ''}" data-view="${v}"><span>${ico}</span>${t}</button>`).join('');
+  const nav = $('#nav');
+  if (!nav) return;
+  nav.innerHTML = navItems().map(([v, ico, t]) => `<button class="nav-btn ${view === v ? 'active' : ''}" data-view="${v}"><span>${ico}</span>${t}</button>`).join('');
+}
+function showGate() {
+  $('#auth')?.classList.remove('hidden');
+  $('#app')?.classList.add('hidden');
 }
 
 function filterParams(includePage = false) {
@@ -161,9 +169,9 @@ async function loadData() {
 
 async function go(v) {
   view = v;
-  $('#pageTitle').textContent = navItems().find(x => x[0] === v)?.[2] || v;
+  if ($('#pageTitle')) $('#pageTitle').textContent = navItems().find(x => x[0] === v)?.[2] || v;
   renderNav();
-  $('#yearLabel').textContent = activeYear ? `SY ${activeYear.label}` : 'School year not set';
+  if ($('#yearLabel')) $('#yearLabel').textContent = activeYear ? `SY ${activeYear.label}` : 'School year not set';
   if (v === 'community') await loadCalendar();
   render();
 }
@@ -293,8 +301,8 @@ function renderCases() {
       <td>${fmtDate(c.incident_date)}</td>
       <td>${badge(c.status || '')}<div class="tiny muted">service: ${esc(c.service_status || 'none')} · ${hoursNum(c.completed_service_hours).toFixed(2)}/${hoursNum(c.required_service_hours).toFixed(2)}h (rem ${remaining.toFixed(2)}h)</div></td>
       <td>${me.role === 'admin'
-        ? `<select data-case-status="${c.id}">${['Reported','Under Review','Verified','Accepted','In Progress','Resolved','Closed','Rejected','Escalated'].map(x => `<option ${x===c.status?'selected':''}>${x}</option>`).join('')}</select><div style="height:6px"></div><button class="ghost smallbtn" data-case-details="${c.id}">Details</button>`
-        : `<button class="ghost smallbtn" data-case-details="${c.id}">View</button>`}</td>
+        ? `<select data-case-status="${c.id}">${['Reported','Under Review','Verified','Accepted','In Progress','Resolved','Closed','Rejected','Escalated'].map(x => `<option ${x===c.status?'selected':''}>${x}</option>`).join('')}</select><div style="height:6px"></div><button class="ghost smallbtn" data-details="${c.id}">Details</button>`
+        : `<button class="ghost smallbtn" data-details="${c.id}">View</button>`}</td>
     </tr>`;
   }).join('');
   $('#content').innerHTML =
@@ -380,7 +388,7 @@ function renderSections() {
       <p class="tiny muted">Configuration is optional. When no active tracks/strands are configured, Grade 11–12 forms/filters allow saving without track/strand and selectors can be hidden. Grades 7–10 do not use track/strand. Changes reflect across enrollment, profiles, filters, and reports after refresh in-app (no redeploy).</p>
       <div class="two-col" style="margin-top:12px">
         <div>${table(['Code','Track','Status','Actions'], trackRows || `<tr><td colspan="4" class="empty">No tracks configured.</td></tr>` )}</div>
-        <div>${table(['Code','Strand','Track','Status/Actions'], strandRows || `<tr><td colspan="4" class="empty">No strands configured.</td></tr>` )}</div>
+        <div>${table(['Code','Strand','Track','Status','Actions'], strandRows || `<tr><td colspan="5" class="empty">No strands configured.</td></tr>` )}</div>
       </div>
     </div>` : '';
 
@@ -389,6 +397,12 @@ function renderSections() {
     `<div style="height:15px"></div><div class="two-col"><div>${pageHead('School years', '')}${table(['School year','Status','Archived','Action'], yearRows)}</div><div>${pageHead('Flexible sections', '')}${table(['Grade','Section','Track / Strand','School year','Actions'], secRows)}</div></div>` +
     academicPanel +
     `<p class="note">Sections are defined per school year and may include track/strand for Grades 11–12 when configured. Current section assignments are reflected in student records, violation views, and exports.</p>`;
+  $('#yearFilter') && ($('#yearFilter').onchange = async () => {
+    const id = Number($('#yearFilter').value);
+    activeYear = years.find(y => y.id === id) || activeYear;
+    try { await loadData(); } catch (e) { toast(e.message); }
+    renderSections();
+  });
 }
 
 function renderAccounts() {
@@ -566,14 +580,16 @@ function gradeTrackStrandFields(prefix, gradeVal = '', trackVal = '', strandVal 
     <label>Track<select name="track_id" id="${prefix}Track"><option value="">Not set</option>${trackOptions(trackVal, false)}</select></label>
     <label>Strand<select name="strand_id" id="${prefix}Strand"><option value="">Not set</option>${strandOptions(strandVal, trackVal, false)}</select></label>`;
 }
-function wireGradeTrackStrand(form, prefix) {
+function wireGradeTrackStrand(form, prefix, initial = {}) {
   const gradeEl = form.querySelector('[name="grade"], [name="grade_level"]');
   const containerId = `${prefix}TsContainer`;
-  const render = () => {
-    const g = gradeEl ? gradeEl.value : '';
+  const renderTs = (preserve = false) => {
+    const g = gradeEl ? gradeEl.value : (initial.grade || '');
     const cont = form.querySelector('#' + containerId);
     if (!cont) return;
-    cont.innerHTML = gradeTrackStrandFields(prefix, g, '', '');
+    const currentTrack = preserve ? (form.querySelector(`#${prefix}Track`)?.value || '') : (initial.track_id || '');
+    const currentStrand = preserve ? (form.querySelector(`#${prefix}Strand`)?.value || '') : (initial.strand_id || '');
+    cont.innerHTML = gradeTrackStrandFields(prefix, g, currentTrack, currentStrand);
     const trackSel = form.querySelector(`#${prefix}Track`);
     const strandSel = form.querySelector(`#${prefix}Strand`);
     if (trackSel && strandSel) {
@@ -583,8 +599,8 @@ function wireGradeTrackStrand(form, prefix) {
       };
     }
   };
-  if (gradeEl) gradeEl.addEventListener('input', render);
-  render();
+  if (gradeEl) gradeEl.addEventListener('input', () => renderTs(true));
+  renderTs(false);
 }
 
 function openModal(kind, id) {
@@ -717,7 +733,7 @@ function openModal(kind, id) {
 async function logAttendance(id) {
   const item = service.find(s => String(s.id) === String(id));
   if (!item) return toast('Service assignment not found.');
-  const m = modal('Log attendance day', `<form id="modalForm"><label>Date<input name="date" type="date" required></label><label>Days earned<input name="days" type="number" min="0" step="0.5" value="1"></label><label>Hours earned<input name="hours" type="number" min="0" step="0.5" value="1"></label><label>Notes<textarea name="notes"></textarea></label></form>`);
+  const m = modal('Log attendance day', `<form id="modalForm"><label>Date<input name="date" type="date" required></label><label>Days earned<input name="dayCompleted" type="number" min="0" step="0.5" value="1"></label><label>Hours earned<input name="hours" type="number" min="0" step="0.5" value="1"></label><label>Notes<textarea name="notes"></textarea></label></form>`);
   $('#modalSubmit').onclick = async () => {
     const f = $('#modalForm'); if (!f.reportValidity()) return;
     try { await post(`/api/community-service/${id}/attendance`, Object.fromEntries(new FormData(f).entries())); m.remove(); await loadData(); go('community'); toast('Attendance logged'); } catch (e) { toast(e.message); }
@@ -728,7 +744,7 @@ async function history(id) {
   try {
     const h = await get(`/api/community-service/${id}/attendance`);
     modal('Attendance history', h.length ? table(['Date','Days','Hours','Status','Notes'], h.map(x => `<tr><td>${fmtDate(x.attendance_date)}</td><td>${x.days_earned}</td><td>${x.hours_earned}</td><td>${badge(x.status)}</td><td>${esc(x.notes || '')}</td></tr>`)) : '<p class="muted">No attendance records yet.</p>');
-    $('#modalSubmit').style.display = 'none';
+    const sb = m.querySelector('#modalSubmit'); if (sb) sb.style.display = 'none';
   } catch (e) { toast(e.message); }
 }
 
@@ -754,9 +770,9 @@ function openCaseDetails(id) {
     resolveBtn.className = 'primary';
     resolveBtn.textContent = 'Mark resolved';
     resolveBtn.onclick = async () => { try { await patch(`/api/violations/${item.id}/status`, { status: 'Resolved' }); m.remove(); await loadData(); go('violations'); } catch (e) { toast(e.message); } };
-    footer.insertBefore(resolveBtn, $('#modalSubmit'));
+    const submitBtn = m.querySelector('#modalSubmit'); if (footer && submitBtn) footer.insertBefore(resolveBtn, submitBtn); else if (footer) footer.appendChild(resolveBtn);
   }
-  $('#modalSubmit').style.display = 'none';
+  const sb = m.querySelector('#modalSubmit'); if (sb) sb.style.display = 'none';
 }
 
 function openEditStudent(id) {
@@ -772,12 +788,7 @@ function openEditStudent(id) {
     <label>Guardian name<input name="guardian_name" value="${esc(s.guardian_name||'')}"></label>
     <label>Guardian contact<input name="guardian_contact" value="${esc(s.guardian_contact||'')}"></label>
   </form>`);
-  wireGradeTrackStrand($('#modalForm'), 'editStu');
-  // prefill track/strand by setting values after render if fields exist
-  setTimeout(() => {
-    const t = $('#modalForm')?.querySelector('#editStuTrack'); if (t && s.track_id) t.value = String(s.track_id);
-    const st = $('#modalForm')?.querySelector('#editStuStrand'); if (st && s.strand_id) st.value = String(s.strand_id);
-  }, 0);
+  wireGradeTrackStrand($('#modalForm'), 'editStu', { grade: s.grade_level, track_id: s.track_id || '', strand_id: s.strand_id || '' });
   $('#modalSubmit').onclick = async () => {
     const f = $('#modalForm'); if (!f.reportValidity()) return;
     try { await patch(`/api/students/${s.id}`, Object.fromEntries(new FormData(f).entries())); m.remove(); await loadData(); go('students'); toast('Student updated'); } catch (e) { toast(e.message); }
@@ -867,8 +878,8 @@ async function openAssignTeacher(id) {
   const m = modal(`Assign sections · ${teacher.full_name}`, `<form id="modalForm"><label>Sections<select name="sectionIds" multiple size="8">${opts}</select></label></form>`);
   $('#modalSubmit').onclick = async () => {
     const f = $('#modalForm'); if (!f) return;
-    const sectionIds = [...f.sectionIds.selectedOptions].map(o => Number(o.value));
-    try { await post(`/api/teachers/${id}/sections`, { sectionIds }); m.remove(); toast('Teacher sections updated'); } catch (e) { toast(e.message); }
+    const sections = [...f.sectionIds.selectedOptions].map(o => Number(o.value));
+    try { await put(`/api/teachers/${id}/sections`, { sections }); m.remove(); toast('Teacher sections updated'); } catch (e) { toast(e.message); }
   };
 }
 
@@ -879,6 +890,18 @@ function openEditServiceLog(id) {
 }
 
 function attachClickHandlers() {
+  document.addEventListener('change', async e => {
+    const statusSel = e.target.closest('[data-case-status]');
+    if (statusSel) {
+      try {
+        await patch(`/api/violations/${statusSel.dataset.caseStatus}`, { status: statusSel.value });
+        await loadRecentViolations();
+        toast('Case status updated');
+        render();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+  });
   document.addEventListener('click', async e => {
     // Password visibility toggles
     const toggle = e.target.closest('[data-toggle-password]');
@@ -894,10 +917,10 @@ function attachClickHandlers() {
       return;
     }
 
-    const nav = e.target.closest('.nav-link');
-    if (nav) { e.preventDefault(); go(nav.dataset.view); return; }
+    const nav = e.target.closest('.nav-btn, .nav-link, [data-view]');
+    if (nav && nav.dataset.view) { e.preventDefault(); go(nav.dataset.view); return; }
 
-    const logoutBtn = e.target.closest('#logoutBtn');
+    const logoutBtn = e.target.closest('#logoutBtn, #logout');
     if (logoutBtn) { e.preventDefault(); try { await post('/api/auth/logout', {}); } catch(_){} me = null; showGate(); return; }
 
     const modalBtn = e.target.closest('[data-modal]');
@@ -944,23 +967,32 @@ function attachClickHandlers() {
 }
 
 function switchAuthTab(tab) {
-  $$('#authCard .tab').forEach(t => t.classList.toggle('active', t.dataset.authTab === tab));
-  $('#loginForm')?.classList.toggle('hidden', tab !== 'login');
-  $('#studentRegisterForm')?.classList.toggle('hidden', tab !== 'studentRegister');
-  $('#registerForm')?.classList.toggle('hidden', tab !== 'register');
+  const normalized = tab === 'student-register' ? 'studentRegister' : tab;
+  $$('.auth-card .tab, .tabs .tab').forEach(t => {
+    const ttab = t.dataset.authTab || t.dataset.auth || '';
+    const tnorm = ttab === 'student-register' ? 'studentRegister' : ttab;
+    t.classList.toggle('active', tnorm === normalized);
+  });
+  $('#loginForm')?.classList.toggle('hidden', normalized !== 'login');
+  $('#studentRegisterForm')?.classList.toggle('hidden', normalized !== 'studentRegister');
+  $('#registerForm')?.classList.toggle('hidden', normalized !== 'register');
 }
 
 function showGate() {
-  $('#gate').classList.remove('hidden');
-  $('#appShell').classList.add('hidden');
+  $('#auth')?.classList.remove('hidden');
+  $('#app')?.classList.add('hidden');
 }
 function showApp() {
-  $('#gate').classList.add('hidden');
-  $('#appShell').classList.remove('hidden');
+  $('#auth')?.classList.add('hidden');
+  $('#app')?.classList.remove('hidden');
+  if ($('#userName')) $('#userName').textContent = me?.full_name || 'User';
+  if ($('#userRole')) $('#userRole').textContent = me?.role === 'admin' ? 'Verified administrator' : 'Teacher';
+  if ($('#userAvatar')) $('#userAvatar').textContent = initials(me?.full_name || '');
+  renderNav();
 }
 
 function attachAuthHandlers() {
-  $$('#authCard .tab').forEach(t => t.addEventListener('click', () => switchAuthTab(t.dataset.authTab)));
+  $$('.auth-card .tab, .tabs .tab').forEach(t => t.addEventListener('click', () => switchAuthTab(t.dataset.authTab || t.dataset.auth)));
 
   $('#setupForm')?.addEventListener('submit', async e => {
     e.preventDefault();
@@ -1009,21 +1041,20 @@ async function init() {
       $('#loginForm')?.classList.add('hidden');
       $('#studentRegisterForm')?.classList.add('hidden');
       $('#registerForm')?.classList.add('hidden');
-      $('#authSubtitle').textContent = 'Create the first administrator account to initialize the system.';
-      $('#authCard .tabs')?.classList.add('hidden');
+      const tabs = $('.auth-card .tabs, .tabs'); if (tabs) tabs.classList.add('hidden');
+      const msgEl = $('#authMsg'); if (msgEl) msgEl.textContent = 'Create the first administrator account to initialize the system.';
     } else {
       $('#setupForm')?.classList.add('hidden');
-      $('#loginForm')?.classList.remove('hidden');
-      $('#authCard .tabs')?.classList.remove('hidden');
+      const tabs = $('.auth-card .tabs, .tabs'); if (tabs) tabs.classList.remove('hidden');
       switchAuthTab('login');
       try {
         const session = await get('/api/me');
-        if (session?.user) { me = session.user; await loadData(); showApp(); go('dashboard'); return; }
+        if (session?.user) { me = session.user; await loadData(); showApp(); await go('dashboard'); return; }
       } catch (_) {}
     }
   } catch (e) {
     console.error(e);
-    $('#authSubtitle').textContent = 'Unable to reach the server. Check that the backend is running.';
+    const msgEl = $('#authMsg'); if (msgEl) msgEl.textContent = 'Unable to reach the server. Check that the backend is running.';
   }
   showGate();
 }
