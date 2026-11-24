@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS users (
  password_hash TEXT NOT NULL,
  role TEXT NOT NULL CHECK(role IN ('admin','teacher','student','guidance_counselor','class_adviser')),
  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','verified','rejected','suspended')),
- requested_section_id INTEGER REFERENCES sections(id) ON DELETE SET NULL,
  verified_by INTEGER REFERENCES users(id), verified_at TEXT,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

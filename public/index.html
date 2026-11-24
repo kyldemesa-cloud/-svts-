@@ -132,52 +132,6 @@
           <button class="primary full">Sign in</button>
         </form>
 
-        <form id="studentRegisterForm" class="hidden">
-          <label>Full name<input name="name" required></label>
-          <label>Grade level
-            <select name="grade_level" id="signupGradeLevel" required>
-              <option value="">Select grade level</option>
-              <option value="7">Grade 7</option>
-              <option value="8">Grade 8</option>
-              <option value="9">Grade 9</option>
-              <option value="10">Grade 10</option>
-              <option value="11">Grade 11</option>
-              <option value="12">Grade 12</option>
-            </select>
-          </label>
-          <label>School year
-            <select name="school_year_id" id="signupSchoolYear" required>
-              <option value="">Select school year</option>
-            </select>
-          </label>
-          <label>Section
-            <select name="section_id" id="signupSection" required>
-              <option value="">Select grade and school year first</option>
-            </select>
-          </label>
-          <div id="signupTrackStrandWrap" class="hidden" style="display:grid;gap:10px">
-            <label>Track (Grade 11-12)
-              <select name="track_id" id="signupTrack">
-                <option value="">Select track (if applicable)</option>
-              </select>
-            </label>
-            <label>Strand (Grade 11-12)
-              <select name="strand_id" id="signupStrand">
-                <option value="">Select strand (if applicable)</option>
-              </select>
-            </label>
-          </div>
-          <label>Student number (optional)<input name="student_no" placeholder="If available"></label>
-          <label>Password (10+ characters)
-            <div class="password-wrap">
-              <input type="password" name="password" minlength="10" required>
-              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-            </div>
-          </label>
-          <button class="primary full">Create student account</button>
-          <p class="tiny muted">Student sign-up does not require an email address. Sections, school years, and Grade 11-12 tracks/strands are set by the administrator.</p>
-        </form>
-
         <form id="registerForm" class="hidden">
           <label>Full name<input name="name" required></label>
           <label>Account type

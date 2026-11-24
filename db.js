@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const fs = require('node:fs');
 const path = require('node:path');
+const bcrypt = require('bcryptjs');
 
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'svts.sqlite');
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -130,4 +131,17 @@ function ensureMigrations() {
 
 ensureMigrations();
 
+
+function ensureDefaultAdminAccount() {
+  const email = 'admin@svts.local';
+  const existing = db.prepare('SELECT id, role, status FROM users WHERE lower(email)=lower(?)').get(email);
+  if (existing) return;
+  const passwordHash = bcrypt.hashSync('Admin@12345', 12);
+  db.prepare(`
+    INSERT INTO users (full_name, email, password_hash, role, status, verified_at)
+    VALUES (?, ?, ?, 'admin', 'verified', CURRENT_TIMESTAMP)
+  `).run('System Administrator', email, passwordHash);
+}
+
+ensureDefaultAdminAccount();
 module.exports = db;

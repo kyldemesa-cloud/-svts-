@@ -37,77 +37,6 @@ const audit = (user, action, type, id, details = '') =>
   db.prepare('INSERT INTO audit_log(user_id,action,entity_type,entity_id,details) VALUES(?,?,?,?,?)')
     .run(user?.id, action, type, id, details);
 
-// Public homepage: look up a student record by exact LRN/student number (no login required)
-app.get('/api/public/student-lookup', (req, res) => {
-  try {
-    const lrn = clean(req.query.lrn || req.query.student_number || '', 40);
-    if (!lrn) return res.status(400).json({ error: 'Enter a Learner Reference Number (LRN).' });
-    const student = db.prepare(`
-      SELECT st.id, st.student_number, st.first_name, st.last_name, st.grade_level, st.active,
-             s.section_name, s.school_year,
-             COALESCE(sp.track, st.track, '') AS track,
-             COALESCE(sp.strand, st.strand, '') AS strand
-      FROM students st
-      LEFT JOIN sections s ON s.id = st.section_id
-      LEFT JOIN student_profiles sp ON sp.student_id = st.id
-      WHERE st.student_number = ?
-      LIMIT 1
-    `).get(lrn);
-    if (!student || Number(student.active) === 0) {
-      return res.status(404).json({ error: 'No active student record found for that LRN.' });
-    }
-
-    const violations = db.prepare(`
-      SELECT v.id, v.case_number, v.incident_date, v.status, v.description,
-             o.name AS offense, o.severity,
-             COALESCE(v.community_service_type, '') AS community_service_type,
-             COALESCE(v.required_service_hours, v.community_service_hours, 0) AS required_hours,
-             COALESCE(v.completed_service_hours, 0) AS completed_hours,
-             COALESCE(v.service_status, CASE WHEN v.community_service = 1 THEN 'pending' ELSE 'none' END) AS service_status
-      FROM violations v
-      LEFT JOIN offenses o ON o.id = v.offense_id
-      WHERE v.student_id = ?
-      ORDER BY v.incident_date DESC, v.id DESC
-      LIMIT 50
-    `).all(student.id);
-
-    const totals = violations.reduce((acc, v) => {
-      acc.cases += 1;
-      acc.required += Number(v.required_hours || 0);
-      acc.completed += Number(v.completed_hours || 0);
-      if (!['Resolved', 'Closed', 'Rejected'].includes(v.status || '')) acc.open += 1;
-      if ((v.service_status || 'none') !== 'none' && (v.service_status || '') !== 'completed') acc.servicePending += 1;
-      return acc;
-    }, { cases: 0, open: 0, required: 0, completed: 0, servicePending: 0 });
-
-    res.json({
-      student: {
-        student_number: student.student_number,
-        name: `${student.first_name || ''} ${student.last_name || ''}`.trim(),
-        grade_level: student.grade_level,
-        section_name: student.section_name || '',
-        school_year: student.school_year || '',
-        track: student.track || '',
-        strand: student.strand || ''
-      },
-      totals,
-      violations: violations.map(v => ({
-        case_number: v.case_number,
-        incident_date: v.incident_date,
-        offense: v.offense || 'Violation',
-        severity: v.severity || '',
-        status: v.status || 'Reported',
-        community_service_type: v.community_service_type || '',
-        required_hours: Number(v.required_hours || 0),
-        completed_hours: Number(v.completed_hours || 0),
-        service_status: v.service_status || 'none'
-      }))
-    });
-  } catch (e) {
-    res.status(500).json({ error: 'Unable to look up student record right now.' });
-  }
-});
-
 const getUser = id =>
   db.prepare('SELECT id,full_name,email,role,status FROM users WHERE id=?').get(id);
 
@@ -116,7 +45,7 @@ const auth = (req, res, next) => {
   if (!s) return res.status(401).json({ error: 'Sign in required' });
 
   const u = getUser(s.id);
-  if (!u || u.status !== 'verified') {
+  if (!u || u.status !== 'verified' || u.role === 'student') {
     return req.session.destroy(() => res.status(401).json({ error: 'Account is no longer active' }));
   }
 
@@ -485,6 +414,22 @@ function sendXlsx(res, filename, headers, rows) {
 }
 
 // --- Auth ---
+
+app.get('/api/public/signup-options', (req, res) => {
+  try {
+    const years = db.prepare('SELECT id,label,starts_on,ends_on,is_active FROM school_years WHERE is_active=1 ORDER BY starts_on DESC, id DESC').all();
+    const sections = db.prepare(`
+      SELECT s.id, s.school_year_id, COALESCE(NULLIF(s.school_year,''), y.label) AS school_year, s.grade_level, s.section_name AS name
+      FROM sections s
+      JOIN school_years y ON y.id = s.school_year_id
+      WHERE y.is_active = 1
+      ORDER BY y.starts_on DESC, CAST(s.grade_level AS INTEGER), s.section_name
+    `).all();
+    res.json({ years, sections, tracks: [], strands: [], trackStrandEnabled: false });
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to load account request options.' });
+  }
+});
 app.post('/api/auth/register-admin', async (req, res) => {
   try {
     const name = clean(req.body.name, 100);
@@ -517,121 +462,6 @@ app.post('/api/auth/register-admin', async (req, res) => {
   }
 });
 
-// Student sign-up (no email required). Uses admin-configured academic placement options.
-app.post('/api/auth/register', async (req, res) => {
-  try {
-    const name = clean(req.body.name || req.body.full_name, 100);
-    const password = String(req.body.password || '');
-    const studentNoRaw = clean(req.body.student_no || req.body.studentNumber, 40);
-    const gradeLevel = clean(req.body.grade_level || req.body.gradeLevel, 20);
-    const schoolYearId = Number(req.body.school_year_id || req.body.schoolYearId || 0);
-    const sectionId = Number(req.body.section_id || req.body.sectionId || 0);
-
-    if (!name || !passwordStrong(password)) {
-      return res.status(400).json({ error: 'Name and password of at least 10 characters are required.' });
-    }
-    if (!/^(7|8|9|10|11|12)$/.test(gradeLevel)) {
-      return res.status(400).json({ error: 'Please select a valid grade level.' });
-    }
-    if (!schoolYearId || !sectionId) {
-      return res.status(400).json({ error: 'Please select your school year and section.' });
-    }
-
-    const section = db.prepare(`
-      SELECT s.*, COALESCE(NULLIF(s.school_year,''), y.label) AS school_year_label
-      FROM sections s JOIN school_years y ON y.id=s.school_year_id
-      WHERE s.id=? AND s.school_year_id=? AND y.is_active=1
-    `).get(sectionId, schoolYearId);
-    if (!section) {
-      return res.status(400).json({ error: 'Selected section/school year is invalid or not available. Please contact the administrator.' });
-    }
-    if (String(section.grade_level) !== String(gradeLevel)) {
-      return res.status(400).json({ error: 'Selected section does not match the selected grade level.' });
-    }
-
-    const requestedTrackId = req.body.track_id ?? req.body.trackId ?? section.track_id;
-    const requestedStrandId = req.body.strand_id ?? req.body.strandId ?? section.strand_id;
-    const ts = validateTrackStrandForGrade(gradeLevel, requestedTrackId, requestedStrandId);
-    if (ts.error) return res.status(400).json({ error: ts.error });
-
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    const firstName = parts.slice(0, -1).join(' ') || parts[0] || name;
-    const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
-    const hash = await bcrypt.hash(password, 12);
-
-    const tx = db.transaction(() => {
-      const u = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,'student','verified')")
-        .run(name, null, hash);
-      const userId = Number(u.lastInsertRowid);
-      const studentNumber = studentNoRaw || null;
-
-      let studentId;
-      try {
-        const r = db.prepare(`
-          INSERT INTO students(student_number,first_name,last_name,grade_level,section_id,track_id,strand_id,user_id,guardian_name,guardian_contact,active)
-          VALUES (?,?,?,?,?,?,?,?,?,?,1)
-        `).run(studentNumber, firstName, lastName, gradeLevel, sectionId, ts.track_id, ts.strand_id, userId, '', '');
-        studentId = Number(r.lastInsertRowid);
-      } catch (err) {
-        if (err && /UNIQUE/i.test(String(err.message)) && studentNoRaw) {
-          throw new Error('Student number already exists.');
-        }
-        throw err;
-      }
-
-      db.prepare(`
-        INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact)
-        VALUES (?,?,?,?,?,?,?,?)
-      `).run(userId, studentNumber, gradeLevel, sectionId, ts.track_id, ts.strand_id, '', '');
-
-      audit({ id: userId }, 'Student registration', 'user', userId, `student:${studentId};section:${sectionId};sy:${schoolYearId}`);
-      return userId;
-    });
-
-    const id = tx();
-    res.json({ id, message: 'Student account created. You can sign in now.' });
-  } catch (e) {
-    const msg = String(e && e.message || '');
-    if (msg.includes('Student number already exists')) return res.status(409).json({ error: msg });
-    if (/UNIQUE/i.test(msg)) return res.status(409).json({ error: 'An account or student record with these details already exists.' });
-    res.status(400).json({ error: msg || 'Registration failed.' });
-  }
-});
-
-const fails = new Map();
-
-app.get('/api/setup/status', (req, res) => {
-  res.json({ needsSetup: !db.prepare('SELECT 1 FROM users LIMIT 1').get() });
-});
-
-app.post('/api/setup', async (req, res) => {
-  const tok = process.env.SETUP_TOKEN;
-  if (process.env.NODE_ENV === 'production' && !tok) {
-    return res.status(503).json({ error: 'Set the SETUP_TOKEN environment variable first.' });
-  }
-  if (db.prepare('SELECT 1 FROM users LIMIT 1').get()) {
-    return res.status(403).json({ error: 'Setup already completed.' });
-  }
-  if (tok && req.body.token !== tok) {
-    return res.status(403).json({ error: 'Invalid setup token.' });
-  }
-
-  const name = clean(req.body.name, 100);
-  const email = clean(req.body.email, 160).toLowerCase();
-  const password = String(req.body.password || '');
-  if (!name || !isEmail(email) || !passwordStrong(password)) {
-    return res.status(400).json({ error: 'Name, valid email and 10+ character password required.' });
-  }
-
-  const hash = await bcrypt.hash(password, 12);
-  const r = db.prepare("INSERT INTO users(full_name,email,password_hash,role,status) VALUES(?,?,?,'admin','verified')")
-    .run(name, email, hash);
-
-  db.prepare('INSERT OR IGNORE INTO school_years(label,is_active) VALUES(?,1)').run('2026-2027');
-  audit({ id: r.lastInsertRowid }, 'Initial administrator setup', 'user', r.lastInsertRowid);
-  res.json({ ok: true });
-});
-
 app.post('/api/auth/login', async (req, res) => {
   const ip = req.ip;
   const f0 = fails.get(ip);
@@ -654,6 +484,10 @@ app.post('/api/auth/login', async (req, res) => {
         ? 'Account awaiting administrator verification.'
         : 'Account not active.'
     });
+  }
+
+  if (user.role === 'student') {
+    return res.status(403).json({ error: 'Student access is not available in this system.' });
   }
 
   fails.delete(ip);

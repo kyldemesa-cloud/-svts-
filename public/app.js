@@ -422,7 +422,7 @@ function renderAccounts() {
     pageHead('Account management', '<div class="actions"><button class="primary" data-modal="teacher">+ Create teacher</button><button class="primary" data-modal="staffUser">+ Create staff account</button></div>') +
     `<h2 class="section-title">Pending staff account requests (approved by another admin)</h2>${table(['Name','Email','Requested role','Requested','Review'], pendingRows)}` +
     `<h2 class="section-title">System accounts</h2>${table(['Name','Email','Role','Status','Action'], userRows)}` +
-    `<p class="note">Student sign-up does not require email. Administrator, Guidance Counselor, and Class Adviser accounts can request access and must be approved by an existing administrator. Class Adviser requests/accounts are limited to one section per school year (one adviser account per section; creating a new section/school year allows a new adviser for that section). Teacher accounts are created by verified administrators and may be assigned to one section only.</p>`;
+    `<p class="note">Student access and student self-sign-up are not enabled in this system. Administrator, Guidance Counselor, and Class Adviser accounts can request access and must be approved by an existing administrator. Class Adviser requests/accounts are limited to one section per school year (one adviser account per section; creating a new section/school year allows a new adviser for that section). Teacher accounts are created by verified administrators and may be assigned to one section only.</p>`;
 }
 
 function renderOffenses() {
@@ -1010,50 +1010,8 @@ async function loadSignupOptions(force = false) {
 
 function populateSignupOptionsUI() {
   const opts = signupOptionsCache || { years: [], sections: [], tracks: [], strands: [], trackStrandEnabled: false };
-  const yearSel = $('#signupSchoolYear');
-  const gradeSel = $('#signupGradeLevel');
-  const sectionSel = $('#signupSection');
-  const trackSel = $('#signupTrack');
-  const strandSel = $('#signupStrand');
-  const tsWrap = $('#signupTrackStrandWrap');
-  if (!yearSel || !gradeSel || !sectionSel) return;
-
   const years = Array.isArray(opts.years) ? opts.years : [];
   const sections = Array.isArray(opts.sections) ? opts.sections : [];
-  const tracks = Array.isArray(opts.tracks) ? opts.tracks : [];
-  const strands = Array.isArray(opts.strands) ? opts.strands : [];
-
-  const prevYear = yearSel.value;
-  const prevGrade = gradeSel.value;
-  const prevSection = sectionSel.value;
-  const prevTrack = trackSel?.value || '';
-  const prevStrand = strandSel?.value || '';
-
-  yearSel.innerHTML = `<option value="">Select school year</option>` + years.map(y => `<option value="${esc(y.id)}">${esc(y.label || '')}</option>`).join('');
-  if (prevYear && years.some(y => String(y.id) === String(prevYear))) yearSel.value = prevYear;
-  else if (years.length === 1) yearSel.value = String(years[0].id);
-
-  const yearId = String(yearSel.value || '');
-  const grade = String(gradeSel.value || prevGrade || '');
-  const filteredSections = sections.filter(s => (!yearId || String(s.school_year_id) === yearId) && (!grade || String(s.grade_level) === grade));
-  sectionSel.innerHTML = `<option value="">${yearId && grade ? 'Select section' : 'Select grade and school year first'}</option>` + filteredSections.map(s => `<option value="${esc(s.id)}">${esc(s.section_name || '')} (${esc(s.grade_level || '')})</option>`).join('');
-  if (prevSection && filteredSections.some(s => String(s.id) === String(prevSection))) sectionSel.value = prevSection;
-
-  const isSenior = grade === '11' || grade === '12';
-  const showTS = isSenior && !!opts.trackStrandEnabled;
-  if (tsWrap) tsWrap.classList.toggle('hidden', !showTS);
-  if (trackSel) {
-    trackSel.innerHTML = `<option value="">Select track${showTS ? '' : ' (if applicable)'}</option>` + tracks.map(t => `<option value="${esc(t.id)}">${esc(t.name || t.code || '')}</option>`).join('');
-    trackSel.required = showTS;
-    if (prevTrack && tracks.some(t => String(t.id) === String(prevTrack))) trackSel.value = prevTrack;
-  }
-  const selectedTrackId = String(trackSel?.value || '');
-  const filteredStrands = strands.filter(st => !selectedTrackId || String(st.track_id || '') === selectedTrackId);
-  if (strandSel) {
-    strandSel.innerHTML = `<option value="">Select strand${showTS ? '' : ' (if applicable)'}</option>` + filteredStrands.map(st => `<option value="${esc(st.id)}">${esc(st.name || st.code || '')}${st.track_name ? ` (${esc(st.track_name)})` : ''}</option>`).join('');
-    strandSel.required = showTS;
-    if (prevStrand && filteredStrands.some(st => String(st.id) === String(prevStrand))) strandSel.value = prevStrand;
-  }
 
   const staffRoleSel = $('#staffRequestRole');
   const staffSecWrap = $('#staffRequestSectionWrap');
@@ -1062,30 +1020,31 @@ function populateSignupOptionsUI() {
     const needsSection = staffRoleSel.value === 'class_adviser';
     staffSecWrap.classList.toggle('hidden', !needsSection);
     staffSecSel.required = needsSection;
+    const yearLabelById = new Map((years || []).map(y => [String(y.id), y.label || '']));
     const allSections = (sections || []).slice().sort((a, b) =>
-      String(a.school_year || a.school_year_label || '').localeCompare(String(b.school_year || b.school_year_label || '')) ||
+      String(a.school_year || a.school_year_label || yearLabelById.get(String(a.school_year_id || '')) || '').localeCompare(String(b.school_year || b.school_year_label || yearLabelById.get(String(b.school_year_id || '')) || '')) ||
       String(a.grade_level || '').localeCompare(String(b.grade_level || ''), undefined, { numeric: true }) ||
       String(a.section_name || a.name || '').localeCompare(String(b.section_name || b.name || ''))
     );
-    const yearLabelById = new Map((years || []).map(y => [String(y.id), y.label || '']));
+    const prev = staffSecSel.value;
     staffSecSel.innerHTML = `<option value="">Select section</option>` + allSections.map(s => {
       const sy = s.school_year || s.school_year_label || yearLabelById.get(String(s.school_year_id || '')) || '';
-      return `<option value="${esc(s.id)}">${esc(sy ? sy + ' · ' : '')}Grade ${esc(s.grade_level || '')} ${esc(s.section_name || s.name || '')}</option>`;
+      const secName = s.section_name || s.name || '';
+      return `<option value="${esc(s.id)}">${esc(sy ? sy + ' - ' : '')}Grade ${esc(s.grade_level || '')} ${esc(secName)}</option>`;
     }).join('');
+    if (prev && allSections.some(s => String(s.id) === String(prev))) staffSecSel.value = prev;
   }
 }
 
 function switchAuthTab(tab) {
-  const normalized = tab === 'student-register' ? 'studentRegister' : tab;
+  const normalized = tab === 'register' ? 'register' : 'login';
   $$('.auth-card .tab, .tabs .tab').forEach(t => {
-    const ttab = t.dataset.authTab || t.dataset.auth || '';
-    const tnorm = ttab === 'student-register' ? 'studentRegister' : ttab;
-    t.classList.toggle('active', tnorm === normalized);
+    const ttab = t.dataset.authTab || t.dataset.auth || 'login';
+    t.classList.toggle('active', (ttab === 'register' ? 'register' : 'login') === normalized);
   });
   $('#loginForm')?.classList.toggle('hidden', normalized !== 'login');
-  $('#studentRegisterForm')?.classList.toggle('hidden', normalized !== 'studentRegister');
   $('#registerForm')?.classList.toggle('hidden', normalized !== 'register');
-  if (normalized === 'studentRegister' || normalized === 'register') {
+  if (normalized === 'register') {
     loadSignupOptions().then(populateSignupOptionsUI).catch(() => {});
   }
 }
@@ -1096,16 +1055,14 @@ function openAuthModal(tab = 'login') {
   if (tab === 'setup') {
     $('#setupForm')?.classList.remove('hidden');
     $('#loginForm')?.classList.add('hidden');
-    $('#studentRegisterForm')?.classList.add('hidden');
     $('#registerForm')?.classList.add('hidden');
     $('.auth-modal-card .tabs')?.classList.add('hidden');
   } else {
     if ($('#setupForm')) $('#setupForm').classList.add('hidden');
     $('.auth-modal-card .tabs')?.classList.remove('hidden');
-    switchAuthTab(tab);
+    switchAuthTab(tab === 'register' ? 'register' : 'login');
   }
 }
-
 function closeAuthModal() {
   $('#authModal')?.classList.add('hidden');
   $('#authModal')?.setAttribute('aria-hidden', 'true');
@@ -1150,21 +1107,6 @@ function attachAuthHandlers() {
     } catch (err) { toast(err.message); }
   });
 
-  $('#signupGradeLevel')?.addEventListener('change', populateSignupOptionsUI);
-  $('#signupSchoolYear')?.addEventListener('change', populateSignupOptionsUI);
-  $('#signupTrack')?.addEventListener('change', populateSignupOptionsUI);
-
-  $('#studentRegisterForm')?.addEventListener('submit', async e => {
-    e.preventDefault();
-    const d = Object.fromEntries(new FormData(e.target).entries());
-    try {
-      const r = await post('/api/auth/register', d);
-      e.target.reset();
-      populateSignupOptionsUI();
-      switchAuthTab('login');
-      toast(r.message || 'Student account created. You can sign in now.');
-    } catch (err) { toast(err.message); }
-  });
 
   $('#registerForm')?.addEventListener('submit', async e => {
     e.preventDefault();
