@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#153a57">
+  <meta name="description" content="San Jose Litex Senior High School violation and student support record system.">
+  <title>SVTS | San Jose Litex Senior High School</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div id="landingView" class="landing-view">
+    <header class="site-nav">
+      <div class="site-nav__inner">
+        <a class="site-nav__brand" href="#" aria-label="SVTS home">
+          <img class="brand__logo" src="/assets/svts-logo.jpg" alt="">
+          <span class="site-nav__brand-name"><strong>SVTS</strong><small class="site-nav__brand-sub">San Jose Litex SHS</small></span>
+        </a>
+        <nav id="siteLinks" class="site-nav__links" aria-label="Public navigation">
+          <a href="#features">Features</a>
+          <a href="#roles">User access</a>
+          <a href="#workflow">Workflow</a>
+          <a href="#stats">By the numbers</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <div class="site-nav__cta">
+          <button class="btn btn--primary" type="button" data-auth-mode="login">Sign in</button>
+          <button class="site-nav__burger" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div id="landingError" class="landing-error" role="status" hidden></div>
+      <section class="hero">
+        <div class="hero__inner">
+          <div class="hero__text">
+            <span class="hero__badge">Office of the Guidance Counselor</span>
+            <h1>Student support records, handled with care.</h1>
+            <p class="hero__sub">A secure workspace for authorized school personnel to maintain student records, document violations and community service, and prepare clear reports.</p>
+            <div class="hero__btns">
+              <button class="btn btn--primary btn--lg" type="button" data-auth-mode="login">Sign in to your account</button>
+              <button class="btn btn--ghost btn--lg" type="button" data-auth-mode="adviserRegister">Request adviser access</button>
+            </div>
+            <div class="hero__demo-hint"><span class="muted">Private by default · No student accounts · Staff access is verified</span></div>
+          </div>
+          <div class="hero__visual" aria-label="Illustration of the private staff dashboard">
+            <div class="hero__card-mock mock-window">
+              <div class="mock-window__bar"><span></span><span></span><span></span><small>STAFF WORKSPACE · PREVIEW</small></div>
+              <div class="mock-window__body">
+                <aside class="mock-sidebar" aria-hidden="true">
+                  <span class="mock-nav-item is-active">Dashboard</span>
+                  <span class="mock-nav-item">Students</span>
+                  <span class="mock-nav-item">Violations</span>
+                  <span class="mock-nav-item">Community Service</span>
+                  <span class="mock-nav-item">School setup</span>
+                </aside>
+                <div class="mock-main">
+                  <div class="mock-preview-note">Authorized staff only</div>
+                  <div class="mock-kpis" aria-hidden="true">
+                    <div class="mock-kpi"><div class="mock-kpi__val">—</div><div class="mock-kpi__lbl">Student records</div></div>
+                    <div class="mock-kpi mock-kpi--red"><div class="mock-kpi__val">—</div><div class="mock-kpi__lbl">Open violations</div></div>
+                    <div class="mock-kpi mock-kpi--amber"><div class="mock-kpi__val">—</div><div class="mock-kpi__lbl">Service in progress</div></div>
+                    <div class="mock-kpi mock-kpi--green"><div class="mock-kpi__val">—</div><div class="mock-kpi__lbl">Completed</div></div>
+                  </div>
+                  <div class="mock-chart" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  <small class="mock-caption">Illustration only · no student data displayed</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="stats" class="stats-bar" aria-label="Privacy and access principles">
+        <div class="stats-bar__inner">
+          <div class="stat"><div class="stat__num">2</div><div class="stat__lbl">Staff roles</div></div>
+          <div class="stat"><div class="stat__num">100%</div><div class="stat__lbl">Server-side access checks</div></div>
+          <div class="stat"><div class="stat__num">Private</div><div class="stat__lbl">No public record lookup</div></div>
+        </div>
+      </section>
+
+      <section class="section section--alt" aria-label="Record privacy">
+        <div class="privacy-banner">
+          <span class="privacy-banner__icon" aria-hidden="true">⌑</span>
+          <div><span class="section__eyebrow">A PRIVATE STAFF WORKSPACE</span><h2>Student records are never publicly searchable.</h2><p>Only verified school personnel can sign in. Advisers are limited to one administrator-assigned section, and students do not have accounts or direct access to the system.</p></div>
+        </div>
+      </section>
+
+      <section id="features" class="section">
+        <div class="section__head"><span class="section__eyebrow">What it does</span><h2>Clear tools for the full support workflow</h2><p class="section__sub">Keep essential school records organized, access-controlled, and easy to review.</p></div>
+        <div class="features-grid">
+          <article class="feature-card"><div class="feature-card__icon" aria-hidden="true">▤</div><h3>Violation records</h3><p>Record student violations with category, date and time, location, factual details, and an evidence reference. Each report receives a case number; adviser reports enter review. SVTS does not determine guilt or select sanctions.</p></article>
+          <article class="feature-card"><div class="feature-card__icon" aria-hidden="true">♙</div><h3>Student directory</h3><p>Maintain the student information needed for school support and associate records with the correct school year and section.</p></article>
+          <article class="feature-card"><div class="feature-card__icon" aria-hidden="true">◷</div><h3>Community service</h3><p>Assign service hours and days, record attendance, and track progress through completion with a verifiable history.</p></article>
+          <article class="feature-card"><div class="feature-card__icon" aria-hidden="true">▦</div><h3>Reports and exports</h3><p>Filter student, violation, and community-service records, print every matching result, or export an Excel workbook with overall and section sheets.</p></article>
+          <article class="feature-card"><div class="feature-card__icon" aria-hidden="true">⚙</div><h3>School configuration</h3><p>Administrators manage school years, sections, offense categories, and verified staff access.</p></article>
+          <article class="feature-card"><div class="feature-card__icon" aria-hidden="true">◈</div><h3>Accountability built in</h3><p>Server-enforced permissions, protected sessions, and administrative audit history help keep access and changes accountable.</p></article>
+        </div>
+      </section>
+
+      <section id="roles" class="section section--alt">
+        <div class="section__head"><span class="section__eyebrow">Who uses it</span><h2>Access shaped around staff responsibilities</h2><p class="section__sub">Each account is verified and limited to the work it is authorized to do.</p></div>
+        <div class="roles-grid">
+          <article class="role-panel"><div class="role-panel__icon role-panel__icon--navy" aria-hidden="true">◇</div><h3>Administrator</h3><p>Manages school configuration, student records, staff accounts, violation records, service assignments, and reports.</p><div class="role-panel__demo">Full school administration</div></article>
+          <article class="role-panel"><div class="role-panel__icon role-panel__icon--green" aria-hidden="true">♙</div><h3>Adviser</h3><p>Views authorized records, reports violations and registers a student only within one administrator-assigned section, and records permitted service attendance. Adviser reports enter review and cannot be edited by advisers.</p><div class="role-panel__demo">One assigned section · administrator approval</div></article>
+        </div>
+      </section>
+
+      <section id="workflow" class="section">
+        <div class="section__head"><span class="section__eyebrow">How it works</span><h2>A careful path from setup to follow-up</h2><p class="section__sub">Clear steps keep school records useful while decisions remain with staff.</p></div>
+        <div class="workflow">
+          <div class="workflow__step"><span class="workflow__num">1</span><div class="workflow__body"><h4>Configure the school</h4><p>An administrator sets up a school year, sections, offense categories, and staff access.</p></div></div><div class="workflow__connector"></div>
+          <div class="workflow__step"><span class="workflow__num">2</span><div class="workflow__body"><h4>Record and review violations</h4><p>Staff record factual details and supporting evidence references; each report receives a case number and is reviewed by authorized personnel.</p></div></div><div class="workflow__connector"></div>
+          <div class="workflow__step"><span class="workflow__num">3</span><div class="workflow__body"><h4>Track service activity</h4><p>Record assigned service and attendance; progress is calculated from verified entries.</p></div></div><div class="workflow__connector"></div>
+          <div class="workflow__step"><span class="workflow__num">4</span><div class="workflow__body"><h4>Review and report</h4><p>Authorized personnel review records and export administrative summaries when needed.</p></div></div>
+        </div>
+      </section>
+
+      <section id="faq" class="section section--alt">
+        <div class="section__head"><span class="section__eyebrow">Questions</span><h2>Frequently asked</h2></div>
+        <div class="faq">
+          <details class="faq__item"><summary>How do advisers get an account?</summary><p>Advisers request access with their school email. The request remains pending until an administrator assigns exactly one section and approves it. Advisers cannot sign in before approval.</p></details>
+          <details class="faq__item"><summary>Can students sign in or search records?</summary><p>No. There are no student accounts, student portal, or public student-record lookup. Only verified school personnel can access records.</p></details>
+          <details class="faq__item"><summary>What can advisers access?</summary><p>Advisers can view student and violation records for their one assigned section, submit new violation reports and register students only within that section, and perform permitted service-attendance tasks. Adviser reports enter Under Review; only administrators can update violation records or manage school settings.</p></details>
+          <details class="faq__item"><summary>How is community service progress calculated?</summary><p>Progress is based on recorded attendance and the assigned service requirements. Completion is recorded only after the required time and days are met.</p></details>
+          <details class="faq__item"><summary>Can reports be filtered, printed, or exported?</summary><p>Each record module includes advanced filters. Advisers can print matching records for their assigned section; administrators can export an Excel workbook with an overall sheet and section-specific sheets.</p></details>
+          <details class="faq__item"><summary>Where is the data stored?</summary><p>The local installation stores data in a SQLite database on the server. Protect the server and database, keep secure backups, and use an HTTPS-enabled production deployment before any public exposure.</p></details>
+        </div>
+      </section>
+
+      <section class="cta"><div class="cta__inner"><h2>Access the secure staff workspace</h2><p>Advisers and administrators sign in with verified school accounts. Adviser access requires administrator approval.</p><div class="cta__btns"><button class="btn btn--primary btn--lg" type="button" data-auth-mode="login">Sign in</button><button class="btn btn--light btn--lg" type="button" data-auth-mode="adviserRegister">Request adviser access</button></div></div></section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="site-footer__inner">
+        <div><div class="site-footer__brand"><img class="brand__logo" src="/assets/svts-logo.jpg" alt=""><div><strong>San Jose Litex Senior High School</strong><span>Student Violation Tracking System</span></div></div><p class="site-footer__addr">Office of the Guidance Counselor<br>Private, school-managed staff workspace.</p></div>
+        <div class="site-footer__col"><h4>Platform</h4><ul><li><a href="#features">Features</a></li><li><a href="#roles">User access</a></li><li><a href="#workflow">Workflow</a></li><li><a href="#stats">By the numbers</a></li><li><a href="#faq">FAQ</a></li></ul></div>
+        <div class="site-footer__col"><h4>Access</h4><ul><li><button class="footer-link" type="button" data-auth-mode="login">Staff sign in</button></li><li><button class="footer-link" type="button" data-auth-mode="adviserRegister">Request adviser access</button></li></ul></div>
+        <div class="site-footer__col"><h4>Privacy</h4><ul><li>No student accounts</li><li>No public record lookup</li><li>Verified staff access</li></ul></div>
+      </div>
+      <div class="site-footer__bottom"><span>© 2026 San Jose Litex Senior High School</span><span>SVTS · Private staff workspace</span></div>
+    </footer>
+  </div>
+  <main id="authView" class="auth-view" hidden></main>
+  <div id="appView" class="app-view" hidden>
+    <aside id="sidebar" class="sidebar">
+      <a class="brand" href="#" aria-label="SVTS home">
+        <img class="brand__logo" src="/assets/svts-logo.jpg" alt="">
+        <span class="brand__name"><strong>SVTS</strong><small>San Jose Litex SHS</small></span>
+      </a>
+      <div class="workspace-label">SCHOOL SERVICES</div>
+      <nav id="navigation" class="navigation" aria-label="Main navigation"></nav>
+      <div class="sidebar__bottom">
+        <div class="secure-note"><span class="secure-note__icon">✓</span><span><strong>Private workspace</strong><small>Authorized staff only</small></span></div>
+        <div class="profile" id="profile"></div>
+        <button id="logoutButton" class="logout-button" type="button"><span>↪</span> Sign out</button>
+      </div>
+    </aside>
+    <div id="sidebarScrim" class="sidebar-scrim"></div>
+    <main class="main-content">
+      <header class="topbar">
+        <button id="menuToggle" class="menu-toggle" type="button" aria-label="Open menu"><span></span><span></span><span></span></button>
+        <div class="topbar__context"><span class="topbar__eyebrow">STUDENT SUPPORT &amp; RECORDS</span><span id="activeYear" class="year-chip">School year not selected</span></div>
+        <div class="topbar__right"><span class="live-status"><i></i> Secure session</span><div id="topProfile" class="top-profile"></div></div>
+      </header>
+      <section id="pageContent" class="page-content" tabindex="-1"></section>
+    </main>
+  </div>
+  <div id="printReport" class="print-report" hidden></div>
+  <div id="dialogHost"></div>
+  <div id="toastHost" class="toast-host" aria-live="polite"></div>
+</body>
+</html>

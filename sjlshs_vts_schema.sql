@@ -1,0 +1,4 @@
+-- Deprecated: the SVTS runtime database is now SQLite.
+-- The live schema is created and versioned by SCHEMA in server.py.
+-- Do not run the former MySQL dump; it targeted an older model and included
+-- a DROP DATABASE statement. Export and migrate legacy data separately.

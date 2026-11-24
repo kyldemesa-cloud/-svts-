@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: svts-litex-portal
+    runtime: python
+    region: singapore
+    autoDeployTrigger: off
+    buildCommand: pip install -r requirements.txt
+    startCommand: waitress-serve --listen=0.0.0.0:$PORT server:wsgi_app
+    healthCheckPath: /api/status
+    disk:
+      name: svts-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: SVTS_HOST
+        value: 0.0.0.0
+      - key: SVTS_DB_PATH
+        value: /var/data/svts.sqlite3
+      - key: SVTS_SECURE_COOKIES
+        value: "1"
+      - key: SVTS_TRUST_PROXY
+        value: "1"
+      - key: SVTS_ALLOWED_HOSTS
+        sync: false
+      - key: SVTS_SETUP_KEY
+        sync: false
