@@ -491,6 +491,82 @@ app.post('/api/setup', async (req, res) => {
   }
 });
 
+// Public homepage: look up a student record by exact LRN/student number (no login required)
+app.get('/api/public/student-lookup', async (req, res) => {
+  try {
+    const lrn = str(req.query.lrn || req.query.student_number || '', 40);
+    if (!lrn) return res.status(400).json({ error: 'Enter a Learner Reference Number (LRN).' });
+
+    const student = await db.get(`
+      SELECT st.id, st.student_number, st.first_name, st.last_name, st.grade_level, st.status,
+             sec.name AS section_name, sec.grade_level AS section_grade,
+             sy.label AS school_year,
+             tr.name AS track_name, sd.name AS strand_name
+      FROM students st
+      LEFT JOIN sections sec ON sec.id = st.section_id
+      LEFT JOIN school_years sy ON sy.id = sec.school_year_id
+      LEFT JOIN tracks tr ON tr.id = st.track_id
+      LEFT JOIN strands sd ON sd.id = st.strand_id
+      WHERE st.student_number = ?
+      LIMIT 1
+    `, [lrn]);
+
+    if (!student || String(student.status || '').toLowerCase() === 'inactive') {
+      return res.status(404).json({ error: 'No active student record found for that LRN.' });
+    }
+
+    const violations = await db.all(`
+      SELECT v.id, v.case_number, v.incident_date, v.status, v.description,
+             o.name AS offense, o.severity,
+             COALESCE(v.community_service_type, '') AS community_service_type,
+             COALESCE(v.required_hours, v.community_service_hours, 0) AS required_hours,
+             COALESCE(v.completed_service_hours, 0) AS completed_hours,
+             COALESCE(v.service_status, 'none') AS service_status
+      FROM violations v
+      LEFT JOIN offenses o ON o.id = v.offense_id
+      WHERE v.student_id = ?
+      ORDER BY v.incident_date DESC NULLS LAST, v.id DESC
+      LIMIT 50
+    `, [student.id]);
+
+    const totals = (violations || []).reduce((acc, v) => {
+      acc.cases += 1;
+      acc.required += Number(v.required_hours || 0);
+      acc.completed += Number(v.completed_hours || 0);
+      if (!['Resolved', 'Closed', 'Rejected'].includes(v.status || '')) acc.open += 1;
+      const ss = String(v.service_status || 'none').toLowerCase();
+      if (ss !== 'none' && ss !== 'completed' && ss !== 'complete') acc.servicePending += 1;
+      return acc;
+    }, { cases: 0, open: 0, required: 0, completed: 0, servicePending: 0 });
+
+    res.json({
+      student: {
+        student_number: student.student_number,
+        name: `${student.first_name || ''} ${student.last_name || ''}`.trim(),
+        grade_level: student.grade_level || student.section_grade || '',
+        section_name: student.section_name || '',
+        school_year: student.school_year || '',
+        track: student.track_name || '',
+        strand: student.strand_name || ''
+      },
+      totals,
+      violations: (violations || []).map(v => ({
+        case_number: v.case_number,
+        incident_date: v.incident_date,
+        offense: v.offense || 'Violation',
+        severity: v.severity || '',
+        status: v.status || 'Reported',
+        community_service_type: v.community_service_type || '',
+        required_hours: Number(v.required_hours || 0),
+        completed_hours: Number(v.completed_hours || 0),
+        service_status: v.service_status || 'none'
+      }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to look up student record right now.' });
+  }
+});
+
 app.post('/api/auth/login', async (req, res) => {
   try {
     const ip = req.ip;

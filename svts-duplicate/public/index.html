@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -7,90 +7,184 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="auth" class="auth-shell">
-    <div class="auth-card">
-      <div class="brand-mark">SV</div>
-      <p class="eyebrow">SAN JOSE-LITEX SENIOR HIGH SCHOOL</p>
-      <h1>Violation Tracking System</h1>
-      <p class="muted">Secure school discipline records and service monitoring.</p>
-
-      <div class="tabs">
-        <button class="tab active" data-auth="login">Sign in</button>
-        <button class="tab" data-auth="student-register">Student sign-up</button>
-        <button class="tab" data-auth="register">Admin request</button>
-        <button class="tab" data-auth="adviser-register">Adviser request</button>
+  <div id="landing" class="landing">
+    <header class="landing-header">
+      <div class="landing-brand">
+        <div class="brand-mark">SV</div>
+        <div class="landing-brand-text">
+          <strong>SVTS</strong>
+          <small>San Jose Litex SHS</small>
+        </div>
       </div>
+      <nav class="landing-nav">
+        <a href="#features">Features</a>
+        <a href="#access">User Access</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#numbers">By the Numbers</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <button class="primary landing-signin" data-open-auth="login">Sign in</button>
+    </header>
 
-      <form id="setupForm" class="hidden">
-        <p class="note">First-time setup: create the initial administrator.</p>
-        <label>Setup token
-          <div class="password-wrap">
-            <input type="password" name="token">
-            <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+    <section class="landing-hero" id="features">
+      <div class="hero-copy">
+        <span class="hero-badge">Office of the Guidance Counselor</span>
+        <h1>Track student discipline<br><span>with clarity and care.</span></h1>
+        <p class="hero-lead">The Student Violation Tracking System (SVTS) helps San Jose Litex Senior High School record incidents, monitor offense histories, assign community service, and generate guidance office reports — all in one secure, role-based platform.</p>
+        <div class="hero-actions">
+          <button class="primary" data-open-auth="login">Sign in to your account</button>
+          <button class="ghost hero-outline" data-open-auth="student-register">Create an account</button>
+        </div>
+      </div>
+      <div class="hero-preview" aria-label="Dashboard preview">
+        <div class="preview-window">
+          <div class="preview-top">
+            <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
           </div>
-        </label>
-        <label>Full name<input name="name" required></label>
-        <label>Email<input type="email" name="email" required></label>
-        <label>Password (10+ characters)
-          <div class="password-wrap">
-            <input type="password" name="password" minlength="10" required>
-            <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+          <div class="preview-body">
+            <aside class="preview-side">
+              <div class="preview-side-item active">Dashboard</div>
+              <div class="preview-side-item">Students</div>
+              <div class="preview-side-item">Violations <span class="pill-mini">12</span></div>
+              <div class="preview-side-item">Community Service</div>
+              <div class="preview-side-item">Reports</div>
+            </aside>
+            <div class="preview-main">
+              <div class="preview-cards">
+                <div class="preview-stat"><strong>30</strong><span>STUDENTS</span></div>
+                <div class="preview-stat"><strong>8</strong><span>OPEN CASES</span></div>
+                <div class="preview-stat"><strong>5</strong><span>CS PENDING</span></div>
+                <div class="preview-stat"><strong>22</strong><span>RESOLVED</span></div>
+              </div>
+              <div class="preview-chart">
+                <div style="height:35%"></div><div style="height:58%"></div><div style="height:42%"></div><div style="height:72%"></div><div style="height:50%"></div><div style="height:82%"></div>
+              </div>
+            </div>
           </div>
-        </label>
-        <button class="primary full">Create administrator</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="landing-stats" id="numbers">
+      <div><strong>14</strong><span>VIOLATION CATEGORIES</span></div>
+      <div><strong>3</strong><span>USER ROLES</span></div>
+      <div><strong>48</strong><span>SECTIONS TRACKED</span></div>
+      <div><strong>100%</strong><span>SCHOOL-ALIGNED</span></div>
+    </section>
+
+    <section class="landing-search" id="access">
+      <p class="eyebrow search-eyebrow">PUBLIC RECORD SEARCH</p>
+      <h2>Look up your student record</h2>
+      <p class="muted">Enter your exact LRN to view your violation history and community service status. No login required.</p>
+      <form id="publicLookupForm" class="lookup-form">
+        <input name="lrn" placeholder="Enter Learner Reference Number (LRN)" aria-label="Learner Reference Number">
+        <button class="primary" type="submit">Search record</button>
       </form>
+      <div id="publicLookupResult" class="lookup-result"></div>
+    </section>
 
-      <form id="loginForm">
-        <label>Email<input type="email" name="email" autocomplete="username" required></label>
-        <label>Password
-          <div class="password-wrap">
-            <input type="password" name="password" autocomplete="current-password" required>
-            <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-          </div>
-        </label>
-        <button class="primary full">Sign in</button>
-      </form>
+    <section class="landing-info" id="workflow">
+      <div class="info-card">
+        <h3>Record &amp; Monitor</h3>
+        <p class="muted">Log incidents, track offense histories, and maintain accurate discipline records with role-based access.</p>
+      </div>
+      <div class="info-card">
+        <h3>Assign Service</h3>
+        <p class="muted">Manage community service requirements, attendance, and completion progress in one place.</p>
+      </div>
+      <div class="info-card" id="faq">
+        <h3>Report Clearly</h3>
+        <p class="muted">Generate guidance office reports and review student status with secure, school-aligned workflows.</p>
+      </div>
+    </section>
 
-      <form id="studentRegisterForm" class="hidden">
-        <label>Full name<input name="name" required></label>
-        <label>Student number (optional)<input name="student_no" placeholder="If available"></label>
-        <label>Password (10+ characters)
-          <div class="password-wrap">
-            <input type="password" name="password" minlength="10" required>
-            <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-          </div>
-        </label>
-        <button class="primary full">Create student account</button>
-        <p class="tiny muted">Student sign-up does not require an email address.</p>
-      </form>
+    <div id="authModal" class="auth-modal hidden" aria-hidden="true">
+      <div class="auth-modal-backdrop" data-close-auth></div>
+      <div class="auth-modal-card auth-card">
+        <button type="button" class="auth-modal-close" data-close-auth aria-label="Close">×</button>
+        <div class="brand-mark">SV</div>
+        <p class="eyebrow">SAN JOSE-LITEX SENIOR HIGH SCHOOL</p>
+        <h1>Violation Tracking System</h1>
+        <p class="muted">Secure school discipline records and service monitoring.</p>
 
-      <form id="registerForm" class="hidden">
-        <label>Full name<input name="name" required></label>
-        <label>Email<input type="email" name="email" required></label>
-        <label>Password (10+ characters)
-          <div class="password-wrap">
-            <input type="password" name="password" minlength="10" required>
-            <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-          </div>
-        </label>
-        <button class="primary full">Request administrator account</button>
-        <p class="tiny muted">Admin and adviser accounts require email and must be verified by an existing administrator before sign-in.</p>
-      </form>
+        <div class="tabs">
+          <button class="tab active" data-auth="login">Sign in</button>
+          <button class="tab" data-auth="student-register">Student sign-up</button>
+          <button class="tab" data-auth="register">Admin request</button>
+          <button class="tab" data-auth="adviser-register">Adviser request</button>
+        </div>
 
-      <form id="adviserRegisterForm" class="hidden">
-        <label>Full name<input name="name" required></label>
-        <label>Email<input type="email" name="email" required></label>
-        <label>Password (10+ characters)
-          <div class="password-wrap">
-            <input type="password" name="password" minlength="10" required>
-            <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-          </div>
-        </label>
-        <button class="primary full">Request adviser account</button>
-        <p class="tiny muted">Adviser accounts require email and administrator approval before sign-in.</p>
-      </form>
+        <form id="setupForm" class="hidden">
+          <p class="note">First-time setup: create the initial administrator.</p>
+          <label>Setup token
+            <div class="password-wrap">
+              <input type="password" name="token">
+              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <label>Full name<input name="name" required></label>
+          <label>Email<input type="email" name="email" required></label>
+          <label>Password (10+ characters)
+            <div class="password-wrap">
+              <input type="password" name="password" minlength="10" required>
+              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <button class="primary full">Create administrator</button>
+        </form>
 
-      <p id="authMsg" class="message"></p>
+        <form id="loginForm">
+          <label>Email<input type="email" name="email" autocomplete="username" required></label>
+          <label>Password
+            <div class="password-wrap">
+              <input type="password" name="password" autocomplete="current-password" required>
+              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <button class="primary full">Sign in</button>
+        </form>
+
+        <form id="studentRegisterForm" class="hidden">
+          <label>Full name<input name="name" required></label>
+          <label>Student number (optional)<input name="student_no" placeholder="If available"></label>
+          <label>Password (10+ characters)
+            <div class="password-wrap">
+              <input type="password" name="password" minlength="10" required>
+              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <button class="primary full">Create student account</button>
+          <p class="tiny muted">Student sign-up does not require an email address.</p>
+        </form>
+
+        <form id="registerForm" class="hidden">
+          <label>Full name<input name="name" required></label>
+          <label>Email<input type="email" name="email" required></label>
+          <label>Password (10+ characters)
+            <div class="password-wrap">
+              <input type="password" name="password" minlength="10" required>
+              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <button class="primary full">Request administrator account</button>
+          <p class="tiny muted">Admin and adviser accounts require email and must be verified by an existing administrator before sign-in.</p>
+        </form>
+
+        <form id="adviserRegisterForm" class="hidden">
+          <label>Full name<input name="name" required></label>
+          <label>Email<input type="email" name="email" required></label>
+          <label>Password (10+ characters)
+            <div class="password-wrap">
+              <input type="password" name="password" minlength="10" required>
+              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
+            </div>
+          </label>
+          <button class="primary full">Request adviser account</button>
+          <p class="tiny muted">Adviser accounts require email and administrator approval before sign-in.</p>
+        </form>
+
+        <p id="authMsg" class="message"></p>
+      </div>
     </div>
   </div>
 
