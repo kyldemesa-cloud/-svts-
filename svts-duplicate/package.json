@@ -1,0 +1,17 @@
+{
+  "name": "sj-litex-svts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "School Violation Tracking System for San Jose-Litex Senior High School (PostgreSQL backend)",
+  "scripts": {
+    "start": "node server.js",
+    "setup-admin": "node setup-admin.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "helmet": "^8.0.0",
+    "pg": "^8.13.1"
+  }
+}
