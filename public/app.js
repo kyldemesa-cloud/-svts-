@@ -43,7 +43,7 @@ function toast(message) {
 }
 function initials(n) { return String(n || '').split(' ').map(x => x[0] || '').join('').slice(0, 2).toUpperCase() || '--'; }
 function fmtDate(d) {
-  if (!d) return 'â€”';
+  if (!d) return '—';
   const s = String(d).slice(0, 10);
   const dt = new Date(s + 'T00:00:00');
   return Number.isNaN(dt.getTime()) ? s : dt.toLocaleDateString();
@@ -53,36 +53,36 @@ function badge(s) {
     : /pending|assigned|reported|in_progress|under review|accepted|escalated/i.test(s || '') ? 'pending'
     : /reject|suspend|serious/i.test(s || '') ? 'danger'
     : 'review';
-  return `<span class="badge ${cls}">${esc(s || 'â€”')}</span>`;
+  return `<span class="badge ${cls}">${esc(s || '—')}</span>`;
 }
 function hoursNum(v) { const n = Number(v || 0); return Number.isFinite(n) ? n : 0; }
 function trackStrandText(x) {
   const track = (x?.track || x?.track_name || '').toString().trim();
   const strand = (x?.strand || x?.strand_name || '').toString().trim();
-  return [track, strand].filter(Boolean).join(' Â· ');
+  return [track, strand].filter(Boolean).join(' · ');
 }
 function sectionLabel(s) {
   if (!s) return '';
   const ts = trackStrandText(s);
-  return `G${s.grade_level} Â· ${s.section_name}${ts ? ' Â· ' + ts : ''}`;
+  return `G${s.grade_level} · ${s.section_name}${ts ? ' · ' + ts : ''}`;
 }
-function lrnOf(x) { return x?.lrn || x?.student_number || x?.student_lrn || 'â€”'; }
+function lrnOf(x) { return x?.lrn || x?.student_number || x?.student_lrn || '—'; }
 
 function navItems() {
   return me && me.role === 'admin'
     ? [
-        ['dashboard', 'â–¦', 'Dashboard'],
-        ['violations', 'âš‘', 'Violation Records'],
-        ['community', 'ðŸ—“', 'Community Service'],
-        ['sections', 'ðŸ«', 'Sections & School Years'],
-        ['accounts', 'ðŸ”', 'Accounts'],
-        ['offenses', 'ðŸ“˜', 'Offense Catalog'],
-        ['reports', 'ðŸ“Š', 'Reports']
+        ['dashboard','Dashboard'],
+        ['violations','Violation Records'],
+        ['community','Community Service'],
+        ['sections','Sections & School Years'],
+        ['accounts','Accounts'],
+        ['offenses','Offense Catalog'],
+        ['reports','Reports']
       ]
     : [
-        ['dashboard', 'â–¦', 'Dashboard'],
-        ['violations', 'âš‘', 'Violation Records'],
-        ['community', 'ðŸ—“', 'Community Service']
+        ['dashboard','Dashboard'],
+        ['violations','Violation Records'],
+        ['community','Community Service']
       ];
 }
 
@@ -101,14 +101,18 @@ function showApp() {
 function renderNav() {
   const nav = $('#nav');
   if (!nav) return;
-  nav.innerHTML = navItems().map(([v, ico, t]) => `<button class="nav-btn ${view === v ? 'active' : ''}" data-view="${v}"><span>${ico}</span>${t}</button>`).join('');
+  nav.innerHTML = navItems().map(item => {
+    const v = item[0];
+    const label = item[item.length - 1];
+    return `<button class="nav-btn ${view === v ? 'active' : ''}" data-view="${v}">${esc(label)}</button>`;
+  }).join('');
 }
 function showGate() { $('#landing')?.classList.remove('hidden'); $('#app')?.classList.add('hidden'); }
 function closeAuthModal() { $('#authModal')?.classList.add('hidden'); $('#authModal')?.setAttribute('aria-hidden', 'true'); }
 
 function opt(list, value, label) { return (list || []).map(x => `<option value="${x[value]}">${esc(x[label])}</option>`).join(''); }
 function sectionOptions(selected = '') {
-  return sections.map(s => `<option value="${s.id}" data-grade="${esc(s.grade_level)}" data-track="${esc(s.track||s.track_name||'')}" data-strand="${esc(s.strand||s.strand_name||'')}" ${String(selected)===String(s.id)?'selected':''}>${esc(sectionLabel(s))}${s.school_year ? ' Â· ' + esc(s.school_year) : ''}</option>`).join('');
+  return sections.map(s => `<option value="${s.id}" data-grade="${esc(s.grade_level)}" data-track="${esc(s.track||s.track_name||'')}" data-strand="${esc(s.strand||s.strand_name||'')}" ${String(selected)===String(s.id)?'selected':''}>${esc(sectionLabel(s))}${s.school_year ? ' · ' + esc(s.school_year) : ''}</option>`).join('');
 }
 function distinctTracks() { return [...new Set(sections.map(s => (s.track || s.track_name || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
 function distinctStrands() { return [...new Set(sections.map(s => (s.strand || s.strand_name || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
@@ -152,7 +156,7 @@ function renderFilterForm(prefix, opts = {}) {
         <button class="ghost smallbtn" type="button" id="${prefix}Clear">Clear filters</button>
         ${opts.extraButtons || ''}
       </div>
-      <div class="tiny muted">Date filters are inclusive. Grade 11â€“12 only. Teachers and section staff are limited to their assigned section(s).</div>
+      <div class="tiny muted">Date filters are inclusive. Grade 11-12 only. Teachers and section staff are limited to their assigned section(s).</div>
       ${chips ? `<div class="filter-chips">${chips}</div>` : ''}
     </form>
   `;
@@ -265,12 +269,12 @@ function table(headers, rows) {
 function renderStudentSearchCard() {
   const scopedNote = me.role === 'teacher'
     ? 'Teachers can search LRN records only for students in their assigned section(s).'
-    : (me.role === 'admin' ? 'Admin can search student LRN records across Grade 11â€“12 sections.' : 'Search is limited to your assigned section scope.');
+    : (me.role === 'admin' ? 'Admin can search student LRN records across Grade 11-12 sections.' : 'Search is limited to your assigned section scope.');
   const rows = (studentSearchResults || []).map(s => `<tr>
     <td><strong>${esc(lrnOf(s))}</strong></td>
     <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}</td>
-    <td>G${esc(s.grade_level || '')} Â· ${esc(s.section_name || '')}</td>
-    <td>${esc(trackStrandText(s) || 'â€”')}</td>
+    <td>G${esc(s.grade_level || '')} · ${esc(s.section_name || '')}</td>
+    <td>${esc(trackStrandText(s) || '—')}</td>
   </tr>`).join('');
   const body = !studentSearchQuery
     ? '<p class="muted" style="margin:0">Enter an LRN or name to search student records.</p>'
@@ -296,11 +300,11 @@ function renderDashboard() {
   let html = `<div class="page-head"><div>
       <p class="eyebrow">SAN JOSE LITEX SENIOR HIGH SCHOOL</p>
       <h2 class="section-title" style="margin:0;font-size:30px;color:var(--navy)">Welcome, ${esc(me.full_name)}</h2>
-      <p class="muted" style="margin-top:4px">${isAdmin ? 'Grade 11â€“12 dashboard with LRN search, automatic case numbers, and admin-defined track/strand sections.' : 'Grade 11â€“12 dashboard for your assigned section records and LRN lookup.'}</p>
+      <p class="muted" style="margin-top:4px">${isAdmin ? 'Grade 11-12 dashboard with LRN search, automatic case numbers, and admin-defined track/strand sections.' : 'Grade 11-12 dashboard for your assigned section records and LRN lookup.'}</p>
     </div></div>`;
 
   html += `<div class="cards">${[
-    ['Grade 11â€“12 sections', sections.length, 'Configured sections'],
+    ['Grade 11-12 sections', sections.length, 'Configured sections'],
     ['School years', years.length, `${activeYears} active / ${Math.max(0, years.length - activeYears)} inactive`],
     ['Recent cases', dashboardRecent.total || cases.length, `${openCases} open in current view`],
     ['Active service items', svcOpen, 'Community service tracking']
@@ -320,9 +324,9 @@ function renderDashboard() {
   html += `</div>`;
 
   const rows = (dashboardRecent.items || cases).slice(0, 10).map(c => `<tr>
-    <td><strong>${esc(c.case_number || 'â€”')}</strong><div class="tiny muted">auto-assigned</div></td>
+    <td><strong>${esc(c.case_number || '—')}</strong><div class="tiny muted">auto-assigned</div></td>
     <td>${esc((c.first_name||'')+' '+(c.last_name||''))}<div class="tiny muted">LRN: ${esc(lrnOf(c))}</div></td>
-    <td>G${esc(c.grade_level||'')} Â· ${esc(c.section_name||'')}<div class="tiny muted">${esc(trackStrandText(c) || 'â€”')}</div></td>
+    <td>G${esc(c.grade_level||'')} · ${esc(c.section_name||'')}<div class="tiny muted">${esc(trackStrandText(c) || '—')}</div></td>
     <td>${esc(c.offense||'')}</td>
     <td>${badge(c.severity||'')}</td>
     <td>${fmtDate(c.incident_date)}</td>
@@ -345,13 +349,13 @@ function renderCases() {
       ? `<div class="actions"><button class="ghost smallbtn" data-details="${c.id}" type="button">Details</button><select data-status-case="${c.id}" style="max-width:160px">${['Reported','Under Review','Verified','Accepted','In Progress','Resolved','Closed','Rejected','Escalated'].map(s => `<option ${c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>`
       : `<button class="ghost smallbtn" data-details="${c.id}" type="button">Details</button>`;
     return `<tr>
-      <td><strong>${esc(c.case_number || 'â€”')}</strong></td>
+      <td><strong>${esc(c.case_number || '—')}</strong></td>
       <td>${esc((c.first_name || '') + ' ' + (c.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(c))}</div></td>
-      <td>G${esc(c.grade_level || '')} Â· ${esc(c.section_name || '')}<div class="tiny muted">${esc(trackStrandText(c) || 'â€”')}</div></td>
+      <td>G${esc(c.grade_level || '')} · ${esc(c.section_name || '')}<div class="tiny muted">${esc(trackStrandText(c) || '—')}</div></td>
       <td>${esc(c.offense || '')}${c.community_service_type ? `<div class="tiny muted">Service: ${esc(c.community_service_type)}</div>` : ''}</td>
       <td>${badge(c.severity || '')}</td>
       <td>${fmtDate(c.incident_date)}</td>
-      <td>${badge(c.status || '')}<div class="tiny muted">${esc(c.service_status || 'none')} Â· req ${hoursNum(c.required_service_hours).toFixed(2)}h / done ${hoursNum(c.completed_service_hours).toFixed(2)}h</div></td>
+      <td>${badge(c.status || '')}<div class="tiny muted">${esc(c.service_status || 'none')} · req ${hoursNum(c.required_service_hours).toFixed(2)}h / done ${hoursNum(c.completed_service_hours).toFixed(2)}h</div></td>
       <td>${actions}</td>
     </tr>`;
   }).join('');
@@ -359,7 +363,7 @@ function renderCases() {
   $('#content').innerHTML =
     pageHead('Violation records', `<div class="actions"><button class="ghost" id="exportViolationsXlsx" type="button">Export Violations XLSX</button><button class="ghost" id="exportServiceXlsx" type="button">Export Service XLSX</button>${me.role === 'admin' ? '<button class="primary" data-modal="recordCase" type="button">+ Record violation</button>' : ''}</div>`) +
     renderFilterForm('vf') +
-    `<div style="height:12px"></div><div class="note colorful-note">Record violations with student details in one form (Grade 11â€“12). Student info is saved/linked automatically by LRN. <strong>Case numbers are assigned automatically.</strong> No separate student module is required.</div><div style="height:12px"></div>` +
+    `<div style="height:12px"></div><div class="note colorful-note">Record violations with student details in one form (Grade 11-12). Student info is saved/linked automatically by LRN. <strong>Case numbers are assigned automatically.</strong> No separate student module is required.</div><div style="height:12px"></div>` +
     table(['Case no. (auto)','Student','Grade / Section / Track-Strand','Offense / Service type','Severity','Date','Status / Service hours', me.role === 'admin' ? 'Actions' : 'Details'], rows);
   wireFilterForm('vf', renderCases);
   $('#exportViolationsXlsx') && ($('#exportViolationsXlsx').onclick = () => { window.location.href = '/api/exports/violations.xlsx?' + filterParams().toString(); });
@@ -371,21 +375,21 @@ function renderSections() {
     const statusCtl = me.role === 'admin'
       ? `<select class="year-status-select" data-year-status="${y.id}" data-year-label="${esc(y.label)}"><option value="active" ${y.is_active ? 'selected' : ''}>Active</option><option value="inactive" ${!y.is_active ? 'selected' : ''}>Inactive</option></select>`
       : badge(y.is_active ? 'Active' : 'Inactive');
-    const action = me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-edit-year="${y.id}" type="button">Edit</button></div>` : 'â€”';
+    const action = me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-edit-year="${y.id}" type="button">Edit</button></div>` : '—';
     return `<tr><td>${esc(y.label)}</td><td>${statusCtl}</td><td>${y.archived_at ? fmtDate(y.archived_at) : 'No'}</td><td>${action}</td></tr>`;
   }).join('');
   const secRows = sections.map(s => `<tr>
     <td>G${esc(s.grade_level)}</td>
     <td>${esc(s.section_name)}</td>
-    <td>${esc(s.track || s.track_name || 'â€”')}</td>
-    <td>${esc(s.strand || s.strand_name || 'â€”')}</td>
+    <td>${esc(s.track || s.track_name || '—')}</td>
+    <td>${esc(s.strand || s.strand_name || '—')}</td>
     <td>${esc(s.school_year || s.school_year_label || '')}</td>
-    <td class="actions">${me.role === 'admin' ? `<button class="ghost smallbtn" data-edit-section="${s.id}" type="button">Edit</button><button class="ghost smallbtn" data-delete-section="${s.id}" type="button">Delete</button>` : 'â€”'}</td>
+    <td class="actions">${me.role === 'admin' ? `<button class="ghost smallbtn" data-edit-section="${s.id}" type="button">Edit</button><button class="ghost smallbtn" data-delete-section="${s.id}" type="button">Delete</button>` : '—'}</td>
   </tr>`).join('');
 
   $('#content').innerHTML =
     pageHead('Sections & school years', me.role === 'admin' ? '<div class="actions"><button class="primary" data-modal="year" type="button">+ Add school year</button><button class="primary" data-modal="section" type="button">+ Add track & strand / section</button></div>' : '') +
-    `<div style="height:15px"></div><div class="two-col"><div>${pageHead('School years', '')}${table(['School year','Status','Archived','Action'], yearRows)}<p class="tiny muted">Admins can set each school year as active or inactive using the status dropdown.</p></div><div>${pageHead('Grade 11â€“12 sections', '')}${table(['Grade','Section','Track','Strand/Group','School year','Actions'], secRows)}</div></div>` +
+    `<div style="height:15px"></div><div class="two-col"><div>${pageHead('School years', '')}${table(['School year','Status','Archived','Action'], yearRows)}<p class="tiny muted">Admins can set each school year as active or inactive using the status dropdown.</p></div><div>${pageHead('Grade 11-12 sections', '')}${table(['Grade','Section','Track','Strand/Group','School year','Actions'], secRows)}</div></div>` +
     `<div style="height:12px"></div><div class="card colorful-card"><h3 style="margin-top:0">Admin-defined track & strand</h3><p class="tiny muted">Only Grade 11 and Grade 12 are supported. Use one action to add a section by selecting the grade level and entering the track and strand/group together. Student LRN/details are captured when recording violations.</p></div>`;
 
   $$('[data-year-status]').forEach(sel => {
@@ -413,19 +417,19 @@ function renderCommunity() {
   const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const days = (calendarState.days || []).map(d => {
     const cls = ['calendar-day', d.count ? 'has-service' : '', calendarState.selectedDate === d.date ? 'selected' : ''].filter(Boolean).join(' ');
-    return `<button type="button" class="${cls}" data-cal-date="${esc(d.date)}" aria-label="View services on ${esc(d.date)}"><span class="day">${esc(d.label)}</span><span class="count">${d.count ? (d.count + ' item' + (d.count === 1 ? '' : 's')) : 'â€”'}</span></button>`;
+    return `<button type="button" class="${cls}" data-cal-date="${esc(d.date)}" aria-label="View services on ${esc(d.date)}"><span class="day">${esc(d.label)}</span><span class="count">${d.count ? (d.count + ' item' + (d.count === 1 ? '' : 's')) : '—'}</span></button>`;
   }).join('');
   const selectedRows = (calendarState.selectedItems || []).map(s => `<tr>
-    <td>${esc(s.case_number || 'â€”')}</td>
+    <td>${esc(s.case_number || '—')}</td>
     <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(s))}</div></td>
-    <td>G${esc(s.grade_level || '')} Â· ${esc(s.section_name || '')}<div class="tiny muted">${esc(trackStrandText(s) || 'â€”')}</div></td>
+    <td>G${esc(s.grade_level || '')} · ${esc(s.section_name || '')}<div class="tiny muted">${esc(trackStrandText(s) || '—')}</div></td>
     <td>${esc(s.offense || '')}<div class="tiny muted">${esc(s.service_type || '')}</div></td>
     <td>${fmtDate(s.due_date)}</td>
     <td>${badge(s.status || '')}</td>
   </tr>`).join('');
 
   $('#content').innerHTML = `
-    ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">â—€ Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next â–¶</button></div>`)}
+    ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button></div>`)}
     ${renderFilterForm('calf')}
     <div style="height:12px"></div>
     <div class="calendar-layout">
@@ -446,15 +450,15 @@ function renderCommunity() {
       ${table(['Case','Student (LRN)','Service type','Required hrs','Completed hrs','Remaining hrs','Due date','Status','Action'], service.map(s => {
         const rem = Math.max(0, hoursNum(s.required_service_hours) - hoursNum(s.completed_service_hours));
         return `<tr>
-          <td>${esc(s.case_number || 'â€”')}</td>
+          <td>${esc(s.case_number || '—')}</td>
           <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(s))}</div></td>
-          <td>${esc(s.service_type || 'â€”')}</td>
+          <td>${esc(s.service_type || '—')}</td>
           <td>${hoursNum(s.required_service_hours).toFixed(2)}</td>
           <td>${hoursNum(s.completed_service_hours).toFixed(2)}</td>
           <td>${rem.toFixed(2)}</td>
           <td>${fmtDate(s.due_date)}</td>
           <td>${badge(s.status || '')}</td>
-          <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="in_progress">Mark in progress</button><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="completed">Complete</button></div>` : 'â€”'}</td>
+          <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="in_progress">Mark in progress</button><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="completed">Complete</button></div>` : '—'}</td>
         </tr>`;
       }).join(''))}
     </div>`;
@@ -484,8 +488,23 @@ function renderAccounts() {
 }
 
 function renderOffenses() {
-  const rows = offenses.map(o => `<tr><td>${esc(o.name)}</td><td>${badge(o.category || '')}</td><td>${badge(o.severity || '')}</td><td>${o.default_service_hours ?? 'â€”'}</td><td>${o.is_active ? badge('active') : badge('inactive')}</td></tr>`).join('');
-  $('#content').innerHTML = pageHead('Offense catalog', '') + `<div class="card">${table(['Offense','Category','Severity','Default service hours','Status'], rows)}</div>`;
+  const isAdmin = me.role === 'admin';
+  const rows = offenses.map(o => {
+    const active = (o.active ?? o.is_active ?? 1) ? true : false;
+    const actions = isAdmin
+      ? `<div class="actions"><button class="ghost smallbtn" data-edit-offense="${o.id}" type="button">Edit</button><button class="ghost smallbtn" data-toggle-offense="${o.id}" data-active="${active ? 0 : 1}" type="button">${active ? 'Deactivate' : 'Activate'}</button></div>`
+      : '-';
+    return `<tr>
+      <td><strong>${esc(o.name)}</strong><div class="tiny muted">${esc(o.description || 'No description')}</div></td>
+      <td>${badge(o.severity || '-')}</td>
+      <td>${badge(active ? 'active' : 'inactive')}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+  $('#content').innerHTML =
+    pageHead('Offense catalog', isAdmin ? '<button class="primary" data-modal="offense" type="button">+ Add offense</button>' : '') +
+    `<div class="card colorful-card"><p class="tiny muted" style="margin-top:0">Manage violation offenses used when recording cases. Admins can add, edit, activate, or deactivate offenses.</p>` +
+    `${table(['Offense', 'Severity', 'Status', isAdmin ? 'Actions' : 'Info'], rows || `<tr><td colspan="${isAdmin ? 4 : 3}" class="muted">No offenses found.</td></tr>`)} </div>`;
 }
 
 function renderReports() {
@@ -515,18 +534,18 @@ async function loadSignupOptions() {
 function openModal(kind, id) {
   if (kind === 'recordCase') {
     const today = new Date().toISOString().slice(0,10);
-    modal(`<div class="modal-head"><h3>Record violation</h3><button class="iconbtn modal-close" type="button">âœ•</button></div>
+    modal(`<div class="modal-head"><h3>Record violation</h3><button class="iconbtn modal-close" type="button">×</button></div>
       <form id="recordCaseForm">
-        <div class="note colorful-note" style="margin-bottom:10px"><strong>Case number is assigned automatically</strong> when you save. Enter student details and violation information in one form (Grade 11â€“12).</div>
+        <div class="note colorful-note" style="margin-bottom:10px"><strong>Case number is assigned automatically</strong> when you save. Enter student details and violation information in one form (Grade 11-12).</div>
         <div class="modal-grid">
           <label>LRN<input name="lrn" required placeholder="Student LRN"></label>
           <label>First name<input name="first_name" required></label>
           <label>Last name<input name="last_name" required></label>
           <label>Grade level<select name="grade_level" id="caseGrade" required>${GRADE_OPTIONS.map(g=>`<option value="${g}">Grade ${g}</option>`).join('')}</select></label>
-          <label style="grid-column:1/-1">Section (Grade 11â€“12, assigned track/strand)<select name="section_id" id="caseSection" required><option value="">Select section</option>${sectionOptions('')}</select></label>
+          <label style="grid-column:1/-1">Section (Grade 11-12, assigned track/strand)<select name="section_id" id="caseSection" required><option value="">Select section</option>${sectionOptions('')}</select></label>
           <label>Track<input name="track" id="caseTrack" placeholder="Auto-filled from section (editable)"></label>
           <label>Strand/Group<input name="strand" id="caseStrand" placeholder="Auto-filled from section (editable)"></label>
-          <label style="grid-column:1/-1">Offense<select name="offense_id" required>${opt(offenses.filter(o=>o.is_active!==0), 'id', 'name')}</select></label>
+          <label style="grid-column:1/-1">Offense<select name="offense_id" required>${opt(offenses.filter(o => (o.active ?? o.is_active ?? 1)), 'id', 'name')}</select></label>
           <label>Incident date<input name="incident_date" type="date" value="${today}" required></label>
           <label>Time of incident<input name="time_of_incident" type="time"></label>
           <label style="grid-column:1/-1">Location<input name="location"></label>
@@ -554,7 +573,7 @@ function openModal(kind, id) {
   if (kind === 'section') {
     const s = id ? sections.find(x => x.id == id) : null;
     const yearOptions = years.map(y => `<option value="${y.id}" ${String(s?.school_year_id||'')===String(y.id)?'selected':''}>${esc(y.label)} (${y.is_active?'active':'inactive'})</option>`).join('');
-    modal(`<div class="modal-head"><h3>${s ? 'Edit section / track & strand' : 'Add track & strand / section'}</h3><button class="iconbtn modal-close" type="button">âœ•</button></div>
+    modal(`<div class="modal-head"><h3>${s ? 'Edit section / track & strand' : 'Add track & strand / section'}</h3><button class="iconbtn modal-close" type="button">×</button></div>
       <form id="sectionForm">
         <div class="note colorful-note" style="margin-bottom:10px">One action: select Grade 11 or 12 and enter the track and strand/group together with the section and school year.</div>
         <div class="modal-grid">
@@ -580,7 +599,7 @@ function openModal(kind, id) {
 
   if (kind === 'year') {
     const y = id ? years.find(x => x.id == id) : null;
-    modal(`<div class="modal-head"><h3>${y ? 'Edit school year' : 'Add school year'}</h3><button class="iconbtn modal-close" type="button">âœ•</button></div>
+    modal(`<div class="modal-head"><h3>${y ? 'Edit school year' : 'Add school year'}</h3><button class="iconbtn modal-close" type="button">×</button></div>
       <form id="yearForm">
         <div class="modal-grid">
           <label style="grid-column:1/-1">School year label<input name="label" required value="${esc(y?.label || '')}" placeholder="e.g. 2025-2026"></label>
@@ -597,23 +616,50 @@ function openModal(kind, id) {
     return;
   }
 
+  if (kind === 'offense') {
+    const o = id ? offenses.find(x => String(x.id) === String(id)) : null;
+    modal(`<div class="modal-head"><h3>${o ? 'Edit offense' : 'Add offense'}</h3><button class="iconbtn modal-close" type="button">×</button></div>
+      <form id="offenseForm">
+        <div class="modal-grid">
+          <label style="grid-column:1/-1">Offense name<input name="name" required value="${esc(o?.name || '')}" placeholder="e.g. Tardiness"></label>
+          <label>Severity<select name="severity" required>${['Minor','Major','Serious'].map(v => `<option value="${v}" ${String(o?.severity||'Minor')===v?'selected':''}>${v}</option>`).join('')}</select></label>
+          <label>Status<select name="active"><option value="1" ${(o?.active ?? o?.is_active ?? 1) ? 'selected' : ''}>Active</option><option value="0" ${!(o?.active ?? o?.is_active ?? 1) ? 'selected' : ''}>Inactive</option></select></label>
+          <label style="grid-column:1/-1">Description<textarea name="description" placeholder="Optional description">${esc(o?.description || '')}</textarea></label>
+        </div>
+        <div class="actions" style="margin-top:12px;justify-content:flex-end"><button class="ghost modal-cancel" type="button">Cancel</button><button class="primary" type="submit">${o ? 'Save changes' : 'Add offense'}</button></div>
+      </form>`);
+    $('#offenseForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      data.active = Number(data.active);
+      try {
+        if (o) await put('/api/offenses/' + o.id, data); else await post('/api/offenses', data);
+        toast(o ? 'Offense updated.' : 'Offense added.');
+        closeModal();
+        offenses = await get('/api/offenses');
+        render();
+      } catch (err) { toast(err.message); }
+    };
+    return;
+  }
+
   if (kind === 'caseDetails') {
     const c = cases.find(x => String(x.id) === String(id));
     if (!c) return;
-    modal(`<div class="modal-head"><h3>Violation details</h3><button class="iconbtn modal-close" type="button">âœ•</button></div>
+    modal(`<div class="modal-head"><h3>Violation details</h3><button class="iconbtn modal-close" type="button">×</button></div>
       <div class="detail-grid">
-        <div><div class="tiny muted">Case number (auto)</div><strong>${esc(c.case_number || 'â€”')}</strong></div>
+        <div><div class="tiny muted">Case number (auto)</div><strong>${esc(c.case_number || '—')}</strong></div>
         <div><div class="tiny muted">Status</div>${badge(c.status || '')}</div>
         <div><div class="tiny muted">Student</div><strong>${esc((c.first_name||'')+' '+(c.last_name||''))}</strong></div>
         <div><div class="tiny muted">LRN</div><strong>${esc(lrnOf(c))}</strong></div>
-        <div><div class="tiny muted">Grade / Section</div>${esc(`G${c.grade_level || ''} Â· ${c.section_name || ''}`)}</div>
-        <div><div class="tiny muted">Track / Strand</div>${esc(trackStrandText(c) || 'â€”')}</div>
+        <div><div class="tiny muted">Grade / Section</div>${esc(`G${c.grade_level || ''} · ${c.section_name || ''}`)}</div>
+        <div><div class="tiny muted">Track / Strand</div>${esc(trackStrandText(c) || '—')}</div>
         <div><div class="tiny muted">Offense</div>${esc(c.offense || '')}</div>
         <div><div class="tiny muted">Severity</div>${badge(c.severity || '')}</div>
         <div><div class="tiny muted">Incident date</div>${fmtDate(c.incident_date)}</div>
         <div><div class="tiny muted">Service</div>${esc(c.service_status || 'none')} (${hoursNum(c.completed_service_hours).toFixed(2)}/${hoursNum(c.required_service_hours).toFixed(2)} hrs)</div>
       </div>
-      <div style="margin-top:10px"><div class="tiny muted">Description</div><div class="card" style="margin-top:4px">${esc(c.description || 'â€”')}</div></div>
+      <div style="margin-top:10px"><div class="tiny muted">Description</div><div class="card" style="margin-top:4px">${esc(c.description || '—')}</div></div>
       <div class="actions" style="margin-top:12px;justify-content:flex-end"><button class="ghost modal-cancel" type="button">Close</button></div>`);
     return;
   }
@@ -635,6 +681,20 @@ function wireGlobal() {
       return;
     }
     const editYear = e.target.closest('[data-edit-year]'); if (editYear) { openModal('year', Number(editYear.dataset.editYear)); return; }
+    const editOffense = e.target.closest('[data-edit-offense]'); if (editOffense) { openModal('offense', Number(editOffense.dataset.editOffense)); return; }
+    const toggleOffense = e.target.closest('[data-toggle-offense]'); if (toggleOffense) {
+      try {
+        const id = Number(toggleOffense.dataset.toggleOffense);
+        const active = Number(toggleOffense.dataset.active);
+        const o = offenses.find(x => Number(x.id) === id);
+        if (!o) return;
+        await put('/api/offenses/' + id, { name: o.name, severity: o.severity, description: o.description || '', active });
+        toast(active ? 'Offense activated.' : 'Offense deactivated.');
+        offenses = await get('/api/offenses');
+        render();
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const details = e.target.closest('[data-details]'); if (details) { openModal('caseDetails', details.dataset.details); return; }
   });
   document.addEventListener('change', async (e) => {
@@ -676,4 +736,5 @@ async function boot() {
 }
 
 boot();
+
 

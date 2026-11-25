@@ -983,17 +983,47 @@ app.get('/api/students', auth, verified, (req, res) => {
 });
 
 app.get('/api/offenses', auth, verified, (req, res) => {
-  res.json(db.prepare('SELECT * FROM offense_catalog WHERE active=1 ORDER BY severity,name').all());
+  const isAdmin = req.session.user && req.session.user.role === 'admin';
+  const sql = isAdmin
+    ? 'SELECT id,name,severity,description,active,active AS is_active FROM offense_catalog ORDER BY severity,name'
+    : 'SELECT id,name,severity,description,active,active AS is_active FROM offense_catalog WHERE active=1 ORDER BY severity,name';
+  res.json(db.prepare(sql).all());
 });
 
 app.post('/api/offenses', auth, admin, (req, res) => {
   try {
-    const r = db.prepare('INSERT INTO offense_catalog(name,severity,description) VALUES(?,?,?)')
-      .run(clean(req.body.name, 120), req.body.severity, clean(req.body.description, 500));
+    const name = clean(req.body.name, 120);
+    const severity = clean(req.body.severity, 20);
+    const description = clean(req.body.description, 500);
+    const active = (req.body.active === 0 || req.body.active === false || String(req.body.active) === '0' || String(req.body.active).toLowerCase() === 'inactive') ? 0 : 1;
+    if (!name) return res.status(400).json({ error: 'Offense name is required.' });
+    if (!['Minor','Major','Serious'].includes(severity)) return res.status(400).json({ error: 'Severity must be Minor, Major, or Serious.' });
+    const r = db.prepare('INSERT INTO offense_catalog(name,severity,description,active) VALUES(?,?,?,?)')
+      .run(name, severity, description, active);
     audit(req.session.user, 'Create offense', 'offense', r.lastInsertRowid);
     res.json({ id: r.lastInsertRowid });
   } catch (e) {
     res.status(400).json({ error: 'Offense name must be unique and severity valid.' });
+  }
+});
+
+app.put('/api/offenses/:id', auth, admin, (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM offense_catalog WHERE id=?').get(id);
+    if (!existing) return res.status(404).json({ error: 'Offense not found.' });
+    const name = req.body.name !== undefined ? clean(req.body.name, 120) : existing.name;
+    const severity = req.body.severity !== undefined ? clean(req.body.severity, 20) : existing.severity;
+    const description = req.body.description !== undefined ? clean(req.body.description, 500) : existing.description;
+    let active = existing.active;
+    if (req.body.active !== undefined) active = (req.body.active === 0 || req.body.active === false || String(req.body.active) === '0' || String(req.body.active).toLowerCase() === 'inactive') ? 0 : 1;
+    if (!name) return res.status(400).json({ error: 'Offense name is required.' });
+    if (!['Minor','Major','Serious'].includes(severity)) return res.status(400).json({ error: 'Severity must be Minor, Major, or Serious.' });
+    db.prepare('UPDATE offense_catalog SET name=?, severity=?, description=?, active=? WHERE id=?').run(name, severity, description, active, id);
+    audit(req.session.user, 'Update offense', 'offense', id);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Unable to update offense (name may be duplicate).' });
   }
 });
 
@@ -1467,4 +1497,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`SVTS running at http://localhost:${PORT}`);
 });
+
 
