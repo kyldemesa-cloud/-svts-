@@ -71,13 +71,17 @@ function ensureMigrations() {
   ensureColumn('sections', 'track_id', 'INTEGER REFERENCES tracks(id) ON DELETE SET NULL');
   ensureColumn('sections', 'strand_id', 'INTEGER REFERENCES strands(id) ON DELETE SET NULL');
   ensureColumn('sections', 'school_year', "TEXT DEFAULT ''");
+  ensureColumn('sections', 'track', "TEXT DEFAULT ''");
 
   // students / profiles
   ensureColumn('students', 'track_id', 'INTEGER REFERENCES tracks(id) ON DELETE SET NULL');
   ensureColumn('students', 'strand_id', 'INTEGER REFERENCES strands(id) ON DELETE SET NULL');
+  ensureColumn('students', 'track', "TEXT DEFAULT ''");
   ensureColumn('students', 'guardian_name', "TEXT DEFAULT ''");
   ensureColumn('students', 'guardian_contact', "TEXT DEFAULT ''");
   ensureColumn('students', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE SET NULL');
+  ensureColumn('student_profiles', 'track', "TEXT DEFAULT ''");
+  ensureColumn('student_profiles', 'student_lrn', "TEXT DEFAULT ''");
 
   // violations: service and guardian snapshot fields
   ensureColumn('violations', 'community_service_type', 'TEXT DEFAULT NULL');
@@ -97,6 +101,13 @@ function ensureMigrations() {
       WHERE (school_year IS NULL OR school_year = '')
         AND school_year_id IS NOT NULL
     `);
+  } catch {}
+
+  try {
+    db.exec(`UPDATE sections SET track = COALESCE(NULLIF(track,''), NULLIF(strand,''), '') WHERE track IS NULL OR track = ''`);
+  } catch {}
+  try {
+    db.exec(`UPDATE students SET track = COALESCE(NULLIF(track,''), NULLIF(strand_id,''), '') WHERE track IS NULL OR track = ''`);
   } catch {}
 
   // backfill student_profiles from existing students where missing

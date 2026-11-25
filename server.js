@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const helmet = require('helmet');
@@ -105,29 +105,22 @@ const STAFF_REQUEST_ROLES = ['admin', 'guidance_counselor', 'class_adviser'];
 const STAFF_ROLES = ['admin', 'teacher', 'guidance_counselor', 'class_adviser'];
 const SECTION_STAFF_ROLES = ['teacher', 'guidance_counselor', 'class_adviser'];
 const ALLOWED_GRADE_LEVELS = ['11', '12'];
-const SHS_STRAND_GROUPS = [
-  'STEM',
-  'ABM',
-  'HUMSS',
-  'GAS',
-  'TVL - ICT',
-  'TVL - HE',
-  'TVL - IA',
-  'TVL - Agri-Fishery',
-  'Sports',
-  'Arts and Design'
-];
 
 function normalizeGradeLevel(v) {
   const g = String(v ?? '').trim();
   return ALLOWED_GRADE_LEVELS.includes(g) ? g : '';
 }
 
-function normalizeShsStrand(v) {
-  const s = clean(v, 80);
-  if (!s) return '';
-  const match = SHS_STRAND_GROUPS.find(x => x.toLowerCase() === s.toLowerCase());
-  return match || '';
+function normalizeTrackStrand(v, max = 80) {
+  return clean(v, max);
+}
+
+function normalizeTrack(v) {
+  return normalizeTrackStrand(v, 80);
+}
+
+function normalizeStrand(v) {
+  return normalizeTrackStrand(v, 80);
 }
 
 function roleLabel(role) {
@@ -192,46 +185,50 @@ function emailUnique(email, excludeUserId = null) {
   return !row;
 }
 
-function validateGradeAndStrand(gradeLevel, strandValue) {
+function validateGradeAndStrand(gradeLevel, strandValue, trackValue = '') {
   const grade = normalizeGradeLevel(gradeLevel);
   if (!grade) return { error: 'Only Grade 11 and Grade 12 are allowed.' };
-  const strand = normalizeShsStrand(strandValue);
-  return { grade_level: grade, strand, track_id: null, strand_id: null };
+  const strand = normalizeStrand(strandValue);
+  const track = normalizeTrack(trackValue);
+  return { grade_level: grade, strand, track, track_id: null, strand_id: null };
 }
 
 function upsertStudentProfileFromStudent(studentId) {
   const s = db.prepare(`
-    SELECT st.id, st.user_id, st.student_number, st.grade_level, st.section_id, st.track_id, st.strand_id, st.guardian_name, st.guardian_contact,
-           sec.strand AS section_strand
+    SELECT st.id, st.user_id, st.student_number, st.grade_level, st.section_id, st.track_id, st.strand_id, st.track, st.guardian_name, st.guardian_contact,
+           sec.strand AS section_strand, sec.track AS section_track
     FROM students st
     LEFT JOIN sections sec ON sec.id = st.section_id
     WHERE st.id = ?
   `).get(studentId);
   if (!s) return;
+  const track = clean(s.track || s.section_track || '', 80);
   db.prepare(`
-    INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact)
-    VALUES (?,?,?,?,?,?,?,?)
+    INSERT INTO student_profiles(user_id, student_no, student_lrn, grade_level, section_id, track_id, strand_id, track, guardian_name, guardian_contact)
+    VALUES (?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(student_no) DO UPDATE SET
       user_id=COALESCE(excluded.user_id, student_profiles.user_id),
+      student_lrn=COALESCE(excluded.student_lrn, student_profiles.student_lrn),
       grade_level=excluded.grade_level,
       section_id=excluded.section_id,
       track_id=excluded.track_id,
       strand_id=excluded.strand_id,
+      track=excluded.track,
       guardian_name=excluded.guardian_name,
       guardian_contact=excluded.guardian_contact
-  `).run(s.user_id || null, s.student_number || null, s.grade_level || null, s.section_id || null, s.track_id || null, s.strand_id || null, s.guardian_name || '', s.guardian_contact || '');
+  `).run(s.user_id || null, s.student_number || null, s.student_number || null, s.grade_level || null, s.section_id || null, s.track_id || null, s.strand_id || null, track, s.guardian_name || '', s.guardian_contact || '');
 }
 
 function upsertStudentForViolation(payload, user) {
-  const studentNumber = clean(payload.student_number || payload.studentNumber || payload.number, 40);
+  const lrn = clean(payload.lrn || payload.LRN || payload.student_number || payload.studentNumber || payload.number, 40);
   const firstName = clean(payload.first_name || payload.firstName || payload.first, 80);
   const lastName = clean(payload.last_name || payload.lastName || payload.last, 80);
   const sectionId = Number(payload.section_id || payload.sectionId);
   const guardianName = clean(payload.guardian_name || payload.guardianName, 150);
   const guardianContact = clean(payload.guardian_contact || payload.guardianContact, 50);
 
-  if (!studentNumber || !firstName || !lastName || !sectionId) {
-    return { error: 'Student number, first name, last name, and section are required.' };
+  if (!lrn || !firstName || !lastName || !sectionId) {
+    return { error: 'LRN, first name, last name, and section are required.' };
   }
 
   const section = db.prepare(`
@@ -248,20 +245,21 @@ function upsertStudentForViolation(payload, user) {
     return { error: 'Selected section does not match the student grade level.' };
   }
 
-  const strand = normalizeShsStrand(payload.strand ?? payload.strand_group ?? section.strand ?? '');
-  const existing = db.prepare('SELECT * FROM students WHERE student_number = ?').get(studentNumber);
+  const strand = normalizeStrand(payload.strand ?? payload.strand_group ?? section.strand ?? '');
+  const track = normalizeTrack(payload.track ?? payload.track_name ?? section.track ?? '');
+  const existing = db.prepare('SELECT * FROM students WHERE student_number = ?').get(lrn);
 
   if (existing) {
     if (existing.active !== 1) {
-      return { error: 'This student number belongs to an inactive student record and cannot be used.' };
+      return { error: 'This LRN belongs to an inactive student record and cannot be used.' };
     }
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE students
-        SET first_name = ?, last_name = ?, grade_level = ?, section_id = ?, track_id = NULL, strand_id = NULL,
+        SET first_name = ?, last_name = ?, grade_level = ?, section_id = ?, track_id = NULL, strand_id = NULL, track = ?,
             guardian_name = ?, guardian_contact = ?
         WHERE id = ?
-      `).run(firstName, lastName, grade, sectionId, guardianName, guardianContact, existing.id);
+      `).run(firstName, lastName, grade, sectionId, track, guardianName, guardianContact, existing.id);
 
       if (Number(existing.section_id) !== Number(sectionId)) {
         db.prepare('INSERT INTO section_assignments(student_id, old_section_id, new_section_id, changed_by, reason) VALUES (?,?,?,?,?)')
@@ -275,11 +273,11 @@ function upsertStudentForViolation(payload, user) {
 
   const tx = db.transaction(() => {
     const r = db.prepare(`
-      INSERT INTO students(student_number,first_name,last_name,grade_level,section_id,track_id,strand_id,guardian_name,guardian_contact,active)
-      VALUES (?,?,?,?,?,NULL,NULL,?,?,1)
-    `).run(studentNumber, firstName, lastName, grade, sectionId, guardianName, guardianContact);
+      INSERT INTO students(student_number,first_name,last_name,grade_level,section_id,track_id,strand_id,track,guardian_name,guardian_contact,active)
+      VALUES (?,?,?,?,?,NULL,NULL,?,?,?,1)
+    `).run(lrn, firstName, lastName, grade, sectionId, track, guardianName, guardianContact);
     upsertStudentProfileFromStudent(Number(r.lastInsertRowid));
-    audit(user, 'Create student record (violation)', 'student', r.lastInsertRowid, studentNumber);
+    audit(user, 'Create student record (violation)', 'student', r.lastInsertRowid, lrn);
     return db.prepare('SELECT * FROM students WHERE id = ?').get(Number(r.lastInsertRowid));
   });
   return { student: tx(), created: true };
@@ -319,16 +317,17 @@ function buildViolationsFilterQuery(req, { forExport = false } = {}) {
   const grade = normalizeGradeLevel(q.grade_level || q.grade);
   if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
   if (q.section_id) { filters.push('st.section_id = ?'); params.push(Number(q.section_id)); }
-  if (q.strand) {
-    const strand = normalizeShsStrand(q.strand);
-    if (strand) { filters.push('s.strand = ?'); params.push(strand); }
-  }
+  const strand = normalizeStrand(q.strand);
+  if (strand) { filters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); params.push(strand, strand, strand); }
+  const track = normalizeTrack(q.track);
+  if (track) { filters.push('(s.track = ? OR st.track = ?)'); params.push(track, track); }
   if (q.violation_type) { filters.push('(o.id = ? OR lower(o.name) = lower(?))'); params.push(Number(q.violation_type) || 0, clean(q.violation_type, 120)); }
   if (q.service_status) { filters.push('v.service_status = ?'); params.push(clean(q.service_status, 30)); }
-  if (q.search) {
-    const like = `%${clean(q.search, 120)}%`;
-    filters.push('(v.case_number LIKE ? OR st.student_number LIKE ? OR st.first_name LIKE ? OR st.last_name LIKE ? OR o.name LIKE ? OR v.description LIKE ? OR s.section_name LIKE ? OR s.strand LIKE ?)');
-    params.push(like, like, like, like, like, like, like, like);
+  const search = clean(q.search || q.lrn, 120);
+  if (search) {
+    const like = `%${search}%`;
+    filters.push('(v.case_number LIKE ? OR st.student_number LIKE ? OR st.first_name LIKE ? OR st.last_name LIKE ? OR o.name LIKE ? OR v.description LIKE ? OR s.section_name LIKE ? OR s.strand LIKE ? OR s.track LIKE ?)');
+    params.push(like, like, like, like, like, like, like, like, like);
   }
   const access = studentAccessClause(req, 'st');
   let where = ' WHERE st.grade_level IN (\'11\',\'12\')';
@@ -353,14 +352,15 @@ function queryRecentViolations(req) {
   const { base, params } = buildViolationsFilterQuery(req);
   const total = db.prepare(`SELECT COUNT(*) n ${base}`).get(...params).n;
   const items = db.prepare(`
-    SELECT v.*, st.student_number, st.first_name, st.last_name, st.grade_level,
+    SELECT v.*, st.student_number, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level,
+           COALESCE(NULLIF(st.track,''), NULLIF(s.track,''), '') AS track_name,
            s.id section_id, s.section_name, s.school_year, y.label school_year_label,
-           s.strand strand_name,
+           COALESCE(NULLIF(s.strand,''), '') AS strand_name,
            o.name offense, o.severity, rec.full_name recorded_by_name, ver.full_name verified_by_name
     ${base}
     ORDER BY v.created_at DESC, v.incident_date DESC, v.id DESC
     LIMIT ? OFFSET ?
-  `).all(...params, limit, offset).map(r => ({ ...r, track_id: null, strand_id: null, track_name: null }));
+  `).all(...params, limit, offset).map(r => ({ ...r, track_id: null, strand_id: null }));
   return { items, page, limit, total };
 }
 
@@ -374,11 +374,14 @@ function buildCommunityServiceExportQuery(req) {
   const grade = normalizeGradeLevel(q.grade_level || q.grade);
   if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
   if (q.section_id) { filters.push('st.section_id = ?'); params.push(Number(q.section_id)); }
-  const strand = normalizeShsStrand(q.strand);
-  if (strand) { filters.push('s.strand = ?'); params.push(strand); }
+  const strand = normalizeStrand(q.strand);
+  if (strand) { filters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); params.push(strand, strand, strand); }
+  const track = normalizeTrack(q.track);
+  if (track) { filters.push('(s.track = ? OR st.track = ?)'); params.push(track, track); }
   if (q.service_status) { filters.push('v.service_status = ?'); params.push(clean(q.service_status, 30)); }
-  if (q.search) {
-    const like = `%${clean(q.search, 120)}%`;
+  const search = clean(q.search || q.lrn, 120);
+  if (search) {
+    const like = `%${search}%`;
     filters.push('(v.case_number LIKE ? OR st.student_number LIKE ? OR st.first_name LIKE ? OR st.last_name LIKE ?)');
     params.push(like, like, like, like);
   }
@@ -387,8 +390,8 @@ function buildCommunityServiceExportQuery(req) {
   if (filters.length) where += ' AND ' + filters.join(' AND ');
   if (access.sql) { where += access.sql; params.push(...access.params); }
   return {
-    sql: `SELECT v.id violation_id, v.case_number, st.student_number, st.first_name, st.last_name,
-            st.grade_level, s.section_name, s.school_year, s.strand strand_name,
+    sql: `SELECT v.id violation_id, v.case_number, st.student_number, st.student_number AS lrn, st.first_name, st.last_name,
+            st.grade_level, s.section_name, s.school_year, s.strand strand_name, COALESCE(NULLIF(s.track,''), NULLIF(st.track,''), '') track_name,
             v.community_service_type, v.required_service_hours, v.completed_service_hours, v.service_status,
             v.guardian_name, v.guardian_contact, v.created_at
           FROM violations v
@@ -474,6 +477,21 @@ function sendXlsx(res, filename, headers, rows) {
   Readable.from(buf).pipe(res);
 }
 
+function generateCaseNumber() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const prefix = `SV-${y}${m}${d}-`;
+  for (let i = 0; i < 20; i++) {
+    const suffix = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+    const candidate = `${prefix}${suffix}`;
+    const exists = db.prepare('SELECT 1 FROM violations WHERE case_number = ?').get(candidate);
+    if (!exists) return candidate;
+  }
+  return `SV-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
 // --- Auth ---
 
 app.get('/api/auth/setup-status', (req, res) => {
@@ -489,13 +507,16 @@ app.get('/api/public/signup-options', (req, res) => {
   try {
     const years = db.prepare('SELECT id,label,starts_on,ends_on,is_active FROM school_years WHERE is_active=1 ORDER BY starts_on DESC, id DESC').all();
     const sections = db.prepare(`
-      SELECT s.id, s.school_year_id, COALESCE(NULLIF(s.school_year,''), y.label) AS school_year, s.grade_level, s.section_name AS name
+      SELECT s.id, s.school_year_id, COALESCE(NULLIF(s.school_year,''), y.label) AS school_year, s.grade_level, s.section_name AS name,
+             COALESCE(NULLIF(s.track,''), '') AS track, COALESCE(NULLIF(s.strand,''), '') AS strand
       FROM sections s
       JOIN school_years y ON y.id = s.school_year_id
-      WHERE y.is_active = 1
+      WHERE y.is_active = 1 AND s.grade_level IN ('11','12')
       ORDER BY y.starts_on DESC, CAST(s.grade_level AS INTEGER), s.section_name
     `).all();
-    res.json({ years, sections, tracks: [], strands: [], trackStrandEnabled: false });
+    const tracks = db.prepare("SELECT DISTINCT track AS name FROM sections WHERE TRIM(COALESCE(track,'')) <> '' ORDER BY track").all().map(r => r.name);
+    const strands = db.prepare("SELECT DISTINCT strand AS name FROM sections WHERE TRIM(COALESCE(strand,'')) <> '' ORDER BY strand").all().map(r => r.name);
+    res.json({ years, sections, tracks, strands, trackStrandEnabled: true });
   } catch (e) {
     res.status(500).json({ error: 'Unable to load account request options.' });
   }
@@ -837,19 +858,25 @@ app.get('/api/sections', auth, verified, (req, res) => {
   let q = `
     SELECT s.*, y.label school_year_label,
            COALESCE(NULLIF(s.school_year,''), y.label) school_year,
-           s.strand strand_name
+           COALESCE(NULLIF(s.track,''), '') AS track,
+           COALESCE(NULLIF(s.strand,''), '') AS strand,
+           COALESCE(NULLIF(s.strand,''), '') AS strand_name,
+           COALESCE(NULLIF(s.track,''), '') AS track_name
     FROM sections s
     JOIN school_years y ON y.id=s.school_year_id
     WHERE s.grade_level IN ('11','12')`;
   const params = [];
   if (year) { q += ' AND s.school_year_id=?'; params.push(Number(year)); }
+  if (isSectionStaffRole(req.session.user.role)) {
+    q += ' AND s.id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
+    params.push(req.session.user.id);
+  }
   q += ' ORDER BY y.label DESC, s.grade_level, s.section_name';
   const rows = db.prepare(q).all(...params).map(r => ({
     ...r,
     track_id: null,
     strand_id: null,
     track_code: null,
-    track_name: null,
     strand_code: null
   }));
   res.json(rows);
@@ -863,16 +890,18 @@ app.post('/api/sections', auth, admin, (req, res) => {
     const grade = normalizeGradeLevel(req.body.grade || req.body.grade_level);
     const name = clean(req.body.name || req.body.section_name, 80);
     if (!grade || !name) return res.status(400).json({ error: 'Grade 11/12 and section name are required.' });
-    const strand = normalizeShsStrand(req.body.strand || req.body.strand_group || req.body.strand_name);
+    const track = normalizeTrack(req.body.track || req.body.track_name);
+    const strand = normalizeStrand(req.body.strand || req.body.strand_group || req.body.strand_name);
+    if (!track || !strand) return res.status(400).json({ error: 'Track and strand are required.' });
     const schoolYearLabel = clean(req.body.school_year, 40) || year.label;
     const r = db.prepare(`
-      INSERT INTO sections(school_year_id,grade_level,section_name,strand,track_id,strand_id,school_year)
-      VALUES (?,?,?,?,NULL,NULL,?)
-    `).run(yearId, grade, name, strand, schoolYearLabel);
-    audit(req.session.user, 'Create section', 'section', r.lastInsertRowid, `G${grade} ${name}${strand ? ' - ' + strand : ''}`);
+      INSERT INTO sections(school_year_id,grade_level,section_name,strand,track,track_id,strand_id,school_year)
+      VALUES (?,?,?,?,?,NULL,NULL,?)
+    `).run(yearId, grade, name, strand, track, schoolYearLabel);
+    audit(req.session.user, 'Create section', 'section', r.lastInsertRowid, `G${grade} ${name} - ${track}/${strand}`);
     res.json({ id: r.lastInsertRowid });
   } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Section already exists for this school year.' : 'Unable to create section. Use Grade 11 or Grade 12 only.' });
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Section already exists for this school year.' : 'Unable to create section. Use Grade 11 or Grade 12 with track and strand.' });
   }
 });
 
@@ -884,12 +913,16 @@ app.put('/api/sections/:id', auth, admin, (req, res) => {
     const grade = normalizeGradeLevel(req.body.grade !== undefined ? req.body.grade : (req.body.grade_level !== undefined ? req.body.grade_level : existing.grade_level));
     const name = clean(req.body.name || req.body.section_name || existing.section_name, 80);
     if (!grade || !name) return res.status(400).json({ error: 'Grade 11/12 and section name are required.' });
+    const track = req.body.track !== undefined || req.body.track_name !== undefined
+      ? normalizeTrack(req.body.track ?? req.body.track_name)
+      : normalizeTrack(existing.track);
     const strand = req.body.strand !== undefined || req.body.strand_group !== undefined || req.body.strand_name !== undefined
-      ? normalizeShsStrand(req.body.strand ?? req.body.strand_group ?? req.body.strand_name)
-      : normalizeShsStrand(existing.strand);
+      ? normalizeStrand(req.body.strand ?? req.body.strand_group ?? req.body.strand_name)
+      : normalizeStrand(existing.strand);
+    if (!track || !strand) return res.status(400).json({ error: 'Track and strand are required.' });
     const schoolYearLabel = req.body.school_year !== undefined ? (clean(req.body.school_year, 40) || existing.school_year || existing.year_label || '') : (existing.school_year || existing.year_label || '');
-    db.prepare('UPDATE sections SET grade_level=?,section_name=?,strand=?,track_id=NULL,strand_id=NULL,school_year=? WHERE id=?')
-      .run(grade, name, strand, schoolYearLabel, id);
+    db.prepare('UPDATE sections SET grade_level=?,section_name=?,strand=?,track=?,track_id=NULL,strand_id=NULL,school_year=? WHERE id=?')
+      .run(grade, name, strand, track, schoolYearLabel, id);
     audit(req.session.user, 'Edit section', 'section', id);
     res.json({ ok: true });
   } catch (e) {
@@ -913,10 +946,13 @@ app.delete('/api/sections/:id', auth, admin, (req, res) => {
 
 app.get('/api/students', auth, verified, (req, res) => {
   const year = req.query.year || req.query.yearId;
+  const search = clean(req.query.q || req.query.search || req.query.lrn, 120);
   let q = `
-    SELECT st.*, s.grade_level section_grade_level, s.section_name, s.strand section_strand_text, s.school_year_id,
+    SELECT st.*, st.student_number AS lrn,
+           s.grade_level section_grade_level, s.section_name,
            COALESCE(NULLIF(s.school_year,''), y.label) school_year,
-           s.strand strand_name
+           COALESCE(NULLIF(s.strand,''), '') AS strand_name,
+           COALESCE(NULLIF(s.track,''), COALESCE(NULLIF(st.track,''), '')) AS track_name
     FROM students st
     JOIN sections s ON s.id=st.section_id
     LEFT JOIN school_years y ON y.id=s.school_year_id
@@ -928,12 +964,19 @@ app.get('/api/students', auth, verified, (req, res) => {
     q += ' AND st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
     p.push(req.session.user.id);
   }
+  if (search) {
+    const like = `%${search}%`;
+    q += ' AND (st.student_number LIKE ? OR st.first_name LIKE ? OR st.last_name LIKE ?)';
+    p.push(like, like, like);
+  }
   q += ' ORDER BY s.grade_level,s.section_name,st.last_name,st.first_name';
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || '200', 10) || 200));
+  q += ' LIMIT ?';
+  p.push(limit);
   const rows = db.prepare(q).all(...p).map(r => ({
     ...r,
     track_id: null,
     strand_id: null,
-    track_name: null,
     strand_id_name: null
   }));
   res.json(rows);
@@ -956,11 +999,12 @@ app.post('/api/offenses', auth, admin, (req, res) => {
 
 app.post('/api/violations', auth, admin, (req, res) => {
   try {
-    const caseNumber = clean(req.body.caseNumber || req.body.case_number, 40);
+    let caseNumber = clean(req.body.caseNumber || req.body.case_number, 40);
+    if (!caseNumber) caseNumber = generateCaseNumber();
     const offenseId = Number(req.body.offenseId || req.body.offense_id);
     const incidentDate = parseDateInput(req.body.date || req.body.incident_date);
-    if (!caseNumber || !offenseId || !incidentDate) {
-      return res.status(400).json({ error: 'Case number, offense, and incident date are required.' });
+    if (!Number.isInteger(offenseId) || offenseId <= 0 || !incidentDate) {
+      return res.status(400).json({ error: 'Offense and incident date are required.' });
     }
 
     const up = upsertStudentForViolation(req.body || {}, req.session.user);
@@ -983,31 +1027,43 @@ app.post('/api/violations', auth, admin, (req, res) => {
     const guardianContact = clean(req.body.guardian_contact ?? req.body.guardianContact ?? student.guardian_contact ?? '', 50);
     const communityServiceType = clean(req.body.community_service_type ?? req.body.communityServiceType ?? '', 120) || null;
 
-    const r = db.prepare(`
-      INSERT INTO violations(
-        case_number, student_id, offense_id, incident_date, incident_time, location, description, evidence_notes,
-        community_service_type, required_service_hours, completed_service_hours, service_status,
-        guardian_name, guardian_contact, recorded_by
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `).run(
-      caseNumber,
-      student.id,
-      offenseId,
-      incidentDate,
-      clean(req.body.time || req.body.incident_time, 10) || null,
-      clean(req.body.location, 120),
-      clean(req.body.description, 1000),
-      clean(req.body.evidence || req.body.evidence_notes, 1000),
-      communityServiceType,
-      requiredHours,
-      completedHours,
-      serviceStatus,
-      guardianName,
-      guardianContact,
-      req.session.user.id
-    );
+    let r;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        r = db.prepare(`
+          INSERT INTO violations(
+            case_number, student_id, offense_id, incident_date, incident_time, location, description, evidence_notes,
+            community_service_type, required_service_hours, completed_service_hours, service_status,
+            guardian_name, guardian_contact, recorded_by
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(
+          caseNumber,
+          student.id,
+          offenseId,
+          incidentDate,
+          clean(req.body.time || req.body.incident_time, 10) || null,
+          clean(req.body.location, 120),
+          clean(req.body.description, 1000),
+          clean(req.body.evidence || req.body.evidence_notes, 1000),
+          communityServiceType,
+          requiredHours,
+          completedHours,
+          serviceStatus,
+          guardianName,
+          guardianContact,
+          req.session.user.id
+        );
+        break;
+      } catch (err) {
+        if (attempt < 2 && String(err.message || '').includes('UNIQUE') && !clean(req.body.caseNumber || req.body.case_number, 40)) {
+          caseNumber = generateCaseNumber();
+          continue;
+        }
+        throw err;
+      }
+    }
     audit(req.session.user, 'Record violation', 'violation', r.lastInsertRowid, up.created ? `new student ${student.student_number}` : `student ${student.student_number}`);
-    res.json({ id: r.lastInsertRowid, service_status: serviceStatus, student_id: student.id, student_created: !!up.created });
+    res.json({ id: r.lastInsertRowid, case_number: caseNumber, service_status: serviceStatus, student_id: student.id, student_created: !!up.created });
   } catch (e) {
     res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Case number must be unique.' : 'Violation record invalid. Check student, offense, and date details.' });
   }
@@ -1017,14 +1073,15 @@ app.get('/api/violations', auth, verified, (req, res) => {
   try {
     const { base, params } = buildViolationsFilterQuery(req);
     const rows = db.prepare(`
-      SELECT v.*, st.student_number, st.first_name, st.last_name, st.grade_level,
-             s.section_name, s.school_year, s.strand strand_name,
+      SELECT v.*, st.student_number, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level,
+             s.section_name, s.school_year, COALESCE(NULLIF(s.strand,''), '') AS strand_name,
+             COALESCE(NULLIF(s.track,''), NULLIF(st.track,''), '') AS track_name,
              o.name offense, o.severity,
              rec.full_name recorded_by_name, ver.full_name verified_by_name
       ${base}
       ORDER BY v.incident_date DESC, v.id DESC
       LIMIT 500
-    `).all(...params).map(r => ({ ...r, track_id: null, strand_id: null, track_name: null }));
+    `).all(...params).map(r => ({ ...r, track_id: null, strand_id: null }));
     res.json(rows);
   } catch (e) {
     res.status(400).json({ error: 'Unable to load violations.' });
@@ -1046,7 +1103,7 @@ app.patch('/api/violations/:id', auth, admin, (req, res) => {
 });
 
 app.get('/api/community-service', auth, verified, (req, res) => {
-  let q = 'SELECT cs.*,st.first_name,st.last_name,st.grade_level,s.section_name, y.label school_year, v.case_number, COALESCE((SELECT SUM(hours_served) FROM service_attendance a WHERE a.service_id=cs.id),0) hours_completed, COALESCE((SELECT SUM(day_completed) FROM service_attendance a WHERE a.service_id=cs.id),0) days_completed FROM community_service cs JOIN students st ON st.id=cs.student_id JOIN sections s ON s.id=st.section_id JOIN school_years y ON y.id=cs.school_year_id LEFT JOIN violations v ON v.id=cs.violation_id';
+  let q = 'SELECT cs.*, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level, st.track AS track_name, s.section_name, s.track AS section_track, s.strand AS strand_name, y.label school_year, v.case_number, COALESCE((SELECT SUM(hours_served) FROM service_attendance a WHERE a.service_id=cs.id),0) hours_completed, COALESCE((SELECT SUM(day_completed) FROM service_attendance a WHERE a.service_id=cs.id),0) days_completed FROM community_service cs JOIN students st ON st.id=cs.student_id JOIN sections s ON s.id=st.section_id JOIN school_years y ON y.id=cs.school_year_id LEFT JOIN violations v ON v.id=cs.violation_id';
   const p = [];
 
   if (isSectionStaffRole(req.session.user.role)) {
@@ -1171,15 +1228,16 @@ app.post('/api/staff/users', auth, admin, async (req, res) => {
   }
 });
 
-// --- Academic config (simplified, fixed Grade 11-12 strand groups; no dynamic track/strand creation) ---
+// --- Academic config (admin-defined track/strand inputs based on existing sections; no coded list) ---
 app.get('/api/academic/track-strand-config', auth, verified, (req, res) => {
-  const strands = SHS_STRAND_GROUPS.map((name, i) => ({ id: i + 1, code: name, name, is_active: 1, track_id: null, track_name: null, track_code: null }));
+  const tracks = db.prepare("SELECT DISTINCT track AS name FROM sections WHERE TRIM(COALESCE(track,'')) <> '' ORDER BY track COLLATE NOCASE").all().map((r, i) => ({ id: i + 1, code: r.name, name: r.name, is_active: 1 }));
+  const strands = db.prepare("SELECT DISTINCT strand AS name FROM sections WHERE TRIM(COALESCE(strand,'')) <> '' ORDER BY strand COLLATE NOCASE").all().map((r, i) => ({ id: i + 1, code: r.name, name: r.name, is_active: 1, track_id: null, track_name: null, track_code: null }));
   res.json({
-    tracks: [],
+    tracks,
     strands,
     grades: { '11': { enabled: true }, '12': { enabled: true } },
     enabled: true,
-    fixed: true
+    fixed: false
   });
 });
 
@@ -1205,8 +1263,10 @@ app.get('/api/community-service/calendar', auth, verified, (req, res) => {
     const grade = normalizeGradeLevel(req.query.grade_level || req.query.grade);
     if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
     if (req.query.section_id) { filters.push('st.section_id = ?'); params.push(Number(req.query.section_id)); }
-    const strand = normalizeShsStrand(req.query.strand);
-    if (strand) { filters.push('s.strand = ?'); params.push(strand); }
+    const strand = normalizeStrand(req.query.strand);
+    if (strand) { filters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); params.push(strand, strand, strand); }
+    const track = normalizeTrack(req.query.track);
+    if (track) { filters.push('(s.track = ? OR st.track = ?)'); params.push(track, track); }
     if (req.query.service_status) { filters.push('v.service_status = ?'); params.push(clean(req.query.service_status, 30)); }
     const access = studentAccessClause(req, 'st');
     let where = ' WHERE l.service_date >= ? AND l.service_date <= ? AND st.grade_level IN (\'11\',\'12\')';
@@ -1244,14 +1304,17 @@ app.get('/api/community-service/calendar/:date', auth, verified, (req, res) => {
     if (filters.length) where += ' AND ' + filters.join(' AND ');
     if (access.sql) { where += access.sql; params.push(...access.params); }
     const rows = db.prepare(`
-      SELECT l.*, st.student_number, st.first_name, st.last_name, st.grade_level, s.section_name,
+      SELECT l.*, st.student_number, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level,
+             st.track AS track_name, s.section_name, s.track AS section_track, s.strand AS strand_name,
              v.case_number, v.required_service_hours, v.completed_service_hours, v.service_status,
-             (CASE WHEN v.required_service_hours IS NULL THEN NULL ELSE MAX(v.required_service_hours - v.completed_service_hours, 0) END) remaining_hours,
-             u.full_name verified_by_name
+             o.name AS offense, v.incident_date,
+             (CASE WHEN v.required_service_hours IS NULL THEN NULL ELSE MAX(v.required_service_hours - v.completed_service_hours, 0) END) AS remaining_hours,
+             u.full_name AS verified_by_name
       FROM community_service_logs l
       JOIN students st ON st.id=l.student_id
       JOIN sections s ON s.id=st.section_id
       LEFT JOIN violations v ON v.id=l.violation_id
+      LEFT JOIN offenses o ON o.id=v.offense_id
       LEFT JOIN users u ON u.id=l.verified_by
       ${where}
       ORDER BY st.last_name, st.first_name, l.id
@@ -1341,7 +1404,8 @@ app.get('/api/exports/violations.xlsx', auth, verified, (req, res) => {
     const { base, params } = buildViolationsFilterQuery(req);
     const rows = db.prepare(`
       SELECT v.case_number, st.student_number, st.first_name, st.last_name, st.grade_level,
-             s.section_name, s.school_year, s.strand strand_name,
+             s.section_name, s.school_year, COALESCE(NULLIF(s.strand,''), '') strand_name,
+             COALESCE(NULLIF(s.track,''), NULLIF(st.track,''), '') track_name,
              o.name offense, o.severity, v.incident_date, v.status, v.service_status,
              v.community_service_type, v.required_service_hours, v.completed_service_hours,
              (CASE WHEN COALESCE(v.required_service_hours,0) > COALESCE(v.completed_service_hours,0)
@@ -1351,8 +1415,8 @@ app.get('/api/exports/violations.xlsx', auth, verified, (req, res) => {
       ${base}
       ORDER BY v.created_at DESC, v.id DESC
     `).all(...params);
-    const headers = ['Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Strand/Group','Offense','Severity','Incident Date','Status','Service Status','Community Service Type','Required Service Hours','Completed Service Hours','Remaining Service Hours','Guardian Name','Guardian Contact','Created At'];
-    const data = rows.map(r => [r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.strand_name||'',r.offense,r.severity,r.incident_date,r.status,r.service_status,r.community_service_type||'',r.required_service_hours,r.completed_service_hours,r.remaining_service_hours,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
+    const headers = ['Case Number','LRN','First Name','Last Name','Grade Level','Section','School Year','Track','Strand/Group','Offense','Severity','Incident Date','Status','Service Status','Community Service Type','Required Service Hours','Completed Service Hours','Remaining Service Hours','Guardian Name','Guardian Contact','Created At'];
+    const data = rows.map(r => [r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.offense,r.severity,r.incident_date,r.status,r.service_status,r.community_service_type||'',r.required_service_hours,r.completed_service_hours,r.remaining_service_hours,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
     sendXlsx(res, 'violations.xlsx', headers, data);
   } catch (e) {
     res.status(500).json({ error: 'Unable to export violations.' });
@@ -1363,12 +1427,12 @@ app.get('/api/exports/community-service.xlsx', auth, verified, (req, res) => {
   try {
     const { sql, params } = buildCommunityServiceExportQuery(req);
     const rows = db.prepare(sql).all(...params);
-    const headers = ['Violation ID','Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Strand/Group','Service Type','Required Hours','Completed Hours','Remaining Hours','Service Status','Guardian Name','Guardian Contact','Created At'];
+    const headers = ['Violation ID','Case Number','LRN','First Name','Last Name','Grade Level','Section','School Year','Track','Strand/Group','Service Type','Required Hours','Completed Hours','Remaining Hours','Service Status','Guardian Name','Guardian Contact','Created At'];
     const data = rows.map(r => {
       const required = Number(r.required_service_hours || 0);
       const completed = Number(r.completed_service_hours || 0);
       const remaining = required > completed ? Math.round((required - completed) * 100) / 100 : 0;
-      return [r.violation_id,r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.strand_name||'',r.community_service_type||'',r.required_service_hours,r.completed_service_hours,remaining,r.service_status,r.guardian_name||'',r.guardian_contact||'',r.created_at];
+      return [r.violation_id,r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.community_service_type||'',r.required_service_hours,r.completed_service_hours,remaining,r.service_status,r.guardian_name||'',r.guardian_contact||'',r.created_at];
     });
     sendXlsx(res, 'community-service.xlsx', headers, data);
   } catch (e) {
@@ -1403,3 +1467,4 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`SVTS running at http://localhost:${PORT}`);
 });
+

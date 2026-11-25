@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -13,150 +13,84 @@
         <div class="brand-mark">SV</div>
         <div class="landing-brand-text">
           <strong>SVTS</strong>
-          <small>San Jose Litex SHS</small>
+          <small>San Jose Litex Senior High School</small>
         </div>
       </div>
-      <nav class="landing-nav">
-        <a href="#features">Features</a>
-        <a href="#workflow">Workflow</a>
-        <a href="#numbers">By the Numbers</a>
-        <a href="#faq">FAQ</a>
-      </nav>
-      <button class="primary landing-signin" data-open-auth="login">Sign in</button>
+      <div class="actions">
+        <button class="primary open-auth" type="button">Sign in</button>
+      </div>
     </header>
 
-    <section class="landing-hero" id="features">
+    <section class="landing-hero">
       <div class="hero-copy">
-        <span class="hero-badge">Office of the Guidance Counselor</span>
-        <h1>Track student discipline<br><span>with clarity and care.</span></h1>
-        <p class="hero-lead">The Student Violation Tracking System (SVTS) helps San Jose Litex Senior High School record incidents, monitor offense histories, assign community service, and generate guidance office reports � all in one secure, role-based platform.</p>
+        <span class="hero-badge">Guidance Office • Grade 11–12</span>
+        <h1>Student Violation Tracking<br><span>with LRN, auto case numbers, and clear service monitoring.</span></h1>
+        <p class="hero-lead">Record violations with student details in one form, manage Grade 11–12 sections with admin-defined track and strand, search student LRNs, and monitor community service on a wider, color-coded calendar.</p>
         <div class="hero-actions">
-          <button class="primary" data-open-auth="login">Sign in to your account</button>
+          <button class="primary open-auth" type="button">Sign in</button>
+          <button class="ghost" type="button" id="openStaffRequest">Request staff account</button>
         </div>
+        <p class="tiny muted" id="loginEmailHint" style="margin-top:10px">Ready admin login is available after setup.</p>
       </div>
-      <div class="hero-preview" aria-label="Dashboard preview">
-        <div class="preview-window">
-          <div class="preview-top">
-            <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-          </div>
-          <div class="preview-body">
-            <aside class="preview-side">
-              <div class="preview-side-item active">Dashboard</div>
-              <div class="preview-side-item">Violation Records</div>
-              <div class="preview-side-item">Community Service <span class="pill-mini">12</span></div>
-              <div class="preview-side-item">Sections &amp; Years</div>
-              <div class="preview-side-item">Reports</div>
-            </aside>
-            <div class="preview-main">
-              <div class="preview-cards">
-                <div class="preview-stat"><strong>G11-12</strong><span>SECTIONS</span></div>
-                <div class="preview-stat"><strong>8</strong><span>OPEN CASES</span></div>
-                <div class="preview-stat"><strong>5</strong><span>CS PENDING</span></div>
-                <div class="preview-stat"><strong>22</strong><span>RESOLVED</span></div>
-              </div>
-              <div class="preview-chart">
-                <div style="height:35%"></div><div style="height:58%"></div><div style="height:42%"></div><div style="height:72%"></div><div style="height:50%"></div><div style="height:82%"></div>
-              </div>
-            </div>
-          </div>
+      <div class="hero-preview card colorful-card" aria-label="System highlights">
+        <h3 style="margin-top:0">System highlights</h3>
+        <div class="highlight-grid">
+          <div class="highlight-pill">LRN-based student records</div>
+          <div class="highlight-pill">Automatic case numbers</div>
+          <div class="highlight-pill">Admin-defined Track & Strand</div>
+          <div class="highlight-pill">Grade 11 & 12 only</div>
+          <div class="highlight-pill">Teacher LRN search (assigned sections)</div>
+          <div class="highlight-pill">Wider community service calendar</div>
         </div>
       </div>
     </section>
 
-    <section class="landing-stats" id="numbers">
-      <div><strong>14</strong><span>VIOLATION CATEGORIES</span></div>
-      <div><strong>4</strong><span>STAFF ROLES</span></div>
-      <div><strong>G11-12</strong><span>GRADE GROUPING</span></div>
-      <div><strong>100%</strong><span>SCHOOL-ALIGNED</span></div>
+    <section class="landing-stats">
+      <div class="stat-chip"><strong>LRN</strong><span>Student identifier</span></div>
+      <div class="stat-chip"><strong>Auto</strong><span>Case numbers</span></div>
+      <div class="stat-chip"><strong>G11–G12</strong><span>Senior High only</span></div>
+      <div class="stat-chip"><strong>Track+Strand</strong><span>Admin input per section</span></div>
     </section>
 
-
-    <section class="landing-info" id="workflow">
-      <div class="info-card">
-        <h3>Record &amp; Monitor</h3>
-        <p class="muted">Log incidents with student details in one form, track offense histories, and maintain accurate discipline records with role-based access for Grade 11-12.</p>
-      </div>
-      <div class="info-card">
-        <h3>Assign Service</h3>
-        <p class="muted">Manage community service requirements, attendance, and completion progress in one place.</p>
-      </div>
-      <div class="info-card" id="faq">
-        <h3>Report Clearly</h3>
-        <p class="muted">Generate guidance office reports and review student status with secure, school-aligned workflows.</p>
-      </div>
+    <section class="landing-info">
+      <div class="info-card colorful-card"><h3>Record in one step</h3><p class="muted">Capture student LRN/details directly when recording a violation. No separate student module.</p></div>
+      <div class="info-card colorful-card"><h3>Scoped staff access</h3><p class="muted">Teachers and section staff can search/view LRNs only for students in their assigned section(s).</p></div>
+      <div class="info-card colorful-card"><h3>Monitor service</h3><p class="muted">Use the widened calendar and service records to track required/completed hours and due dates.</p></div>
     </section>
+  </div>
 
-    <div id="authModal" class="auth-modal hidden" aria-hidden="true">
-      <div class="auth-modal-backdrop" data-close-auth></div>
-      <div class="auth-modal-card auth-card">
-        <button type="button" class="auth-modal-close" data-close-auth aria-label="Close">�</button>
-        <div class="brand-mark">SV</div>
-        <p class="eyebrow">SAN JOSE-LITEX SENIOR HIGH SCHOOL</p>
-        <h1>Violation Tracking System</h1>
-        <p class="muted">Secure school discipline records and service monitoring. Student self-sign-up and student access are not available.</p>
+  <div id="authModal" class="auth-modal hidden" aria-hidden="true">
+    <div class="auth-modal-card auth-card colorful-card">
+      <button type="button" class="auth-modal-close iconbtn" id="authModalClose" aria-label="Close">×</button>
+      <div class="brand-mark">SV</div>
+      <p class="eyebrow">SAN JOSE-LITEX SENIOR HIGH SCHOOL</p>
+      <h1>Sign in to SVTS</h1>
+      <p class="muted tiny">Use the ready admin account or an approved staff account. Student sign-up is not available.</p>
 
-        <div class="tabs">
-          <button class="tab active" data-auth="login">Sign in</button>
-          <button class="tab" data-auth="register">Staff account request</button>
-        </div>
+      <form id="loginForm" style="margin-top:12px">
+        <label>Email<input type="email" name="email" autocomplete="username" required></label>
+        <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+        <button class="primary full" type="submit">Sign in</button>
+      </form>
 
-        <form id="setupForm" class="hidden">
-          <p class="note">First-time setup: create the initial administrator.</p>
-          <label>Setup token
-            <div class="password-wrap">
-              <input type="password" name="token">
-              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-            </div>
-          </label>
-          <label>Full name<input name="name" required></label>
+      <details style="margin-top:14px">
+        <summary class="ghost smallbtn" style="display:inline-block;cursor:pointer;list-style:none">Staff account request</summary>
+        <form id="staffRequestForm" style="margin-top:10px">
+          <label>Full name<input name="full_name" required></label>
           <label>Email<input type="email" name="email" required></label>
-          <label>Password (10+ characters)
-            <div class="password-wrap">
-              <input type="password" name="password" minlength="10" required>
-              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-            </div>
-          </label>
-          <button class="primary full">Create administrator</button>
-        </form>
-
-        <form id="loginForm">
-          <label>Email<input type="email" name="email" autocomplete="username" required></label>
-          <label>Password
-            <div class="password-wrap">
-              <input type="password" name="password" autocomplete="current-password" required>
-              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-            </div>
-          </label>
-          <button class="primary full">Sign in</button>
-        </form>
-
-        <form id="registerForm" class="hidden">
-          <label>Full name<input name="name" required></label>
-          <label>Account type
-            <select name="role" id="staffRequestRole" required>
+          <label>Password (10+ characters)<input type="password" name="password" minlength="10" required></label>
+          <label>Requested role
+            <select name="role" required>
               <option value="admin">Administrator</option>
+              <option value="teacher">Teacher</option>
               <option value="guidance_counselor">Guidance Counselor</option>
               <option value="class_adviser">Class Adviser</option>
             </select>
           </label>
-          <label id="staffRequestSectionWrap" class="hidden">Section (Class Adviser - one account per section/school year)
-            <select name="section_id" id="staffRequestSection">
-              <option value="">Select section</option>
-            </select>
-          </label>
-          <label>Email<input type="email" name="email" required></label>
-          <label>Password (10+ characters)
-            <div class="password-wrap">
-              <input type="password" name="password" minlength="10" required>
-              <button type="button" class="toggle-pass" data-toggle-password aria-label="Show password">Show</button>
-            </div>
-          </label>
-          <button class="primary full">Request staff account</button>
-          <p class="tiny muted">Administrator, Guidance Counselor, and Class Adviser accounts require email and must be approved by an existing administrator before sign-in. Class Adviser requests are tied to one section/school year (one adviser account per section).</p>
+          <p class="tiny muted">Requests require admin approval. Section-assigned staff access is scoped to assigned section(s) after approval/setup.</p>
+          <button class="ghost full" type="submit">Submit request</button>
         </form>
-
-        <p id="authMsg" class="message"></p>
-      </div>
+      </details>
     </div>
   </div>
 
@@ -178,25 +112,25 @@
             <small id="userRole">Role</small>
           </div>
         </div>
-        <button id="logout" class="ghost full">Sign out</button>
+        <button id="logoutBtn" class="ghost full" type="button">Sign out</button>
       </div>
     </aside>
 
     <main class="main">
       <header class="topbar">
         <div>
-          <p class="eyebrow">SCHOOL DISCIPLINE MANAGEMENT</p>
-          <h1 id="pageTitle">Dashboard</h1>
+          <p class="eyebrow">SCHOOL DISCIPLINE MANAGEMENT • GRADE 11–12</p>
+          <h1 id="pageTitle">SVTS Dashboard</h1>
         </div>
         <div class="topright">
-          <span id="yearLabel" class="year-pill"></span>
-          <span class="secure-pill">? Secure access</span>
+          <span class="secure-pill">LRN • Auto Case No. • Track & Strand</span>
         </div>
       </header>
       <section id="content" class="content"></section>
     </main>
   </div>
 
+  <div id="modalWrap"></div>
   <div id="toast" class="toast"></div>
   <script src="app.js"></script>
 </body>
