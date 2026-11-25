@@ -415,6 +415,15 @@ function sendXlsx(res, filename, headers, rows) {
 
 // --- Auth ---
 
+app.get('/api/auth/setup-status', (req, res) => {
+  try {
+    const configured = !!db.prepare("SELECT 1 FROM users WHERE role='admin' AND status='verified' LIMIT 1").get();
+    res.json({ configured });
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to check setup status.' });
+  }
+});
+
 app.get('/api/public/signup-options', (req, res) => {
   try {
     const years = db.prepare('SELECT id,label,starts_on,ends_on,is_active FROM school_years WHERE is_active=1 ORDER BY starts_on DESC, id DESC').all();

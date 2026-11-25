@@ -1093,7 +1093,7 @@ function openAuthModal(tab = 'login') {
   } else {
     if ($('#setupForm')) $('#setupForm').classList.add('hidden');
     $('.auth-modal-card .tabs')?.classList.remove('hidden');
-    switchAuthTab(tab === 'register' ? 'register' : 'login');
+    switchAuthTab(tab === 'register' || tab === 'staff-register' ? 'register' : 'login');
   }
 }
 function closeAuthModal() {
