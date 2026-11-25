@@ -158,5 +158,32 @@ function ensureDefaultAdminAccount() {
   }
 }
 
+function ensureDefaultAdviserAccount() {
+  try {
+    const email = 'adviser@svts.local';
+    let user = db.prepare('SELECT id, role, status FROM users WHERE lower(email)=lower(?)').get(email);
+    let created = false;
+    if (!user) {
+      const passwordHash = bcrypt.hashSync('Adviser@12345', 12);
+      const r = db.prepare(`
+        INSERT INTO users (full_name, email, password_hash, role, status, verified_at)
+        VALUES (?, ?, ?, 'class_adviser', 'verified', CURRENT_TIMESTAMP)
+      `).run('Demo Adviser', email, passwordHash);
+      user = { id: Number(r.lastInsertRowid) };
+      created = true;
+    }
+    if (created) {
+      const section = db.prepare(`SELECT id FROM sections WHERE grade_level IN ('11','12') ORDER BY grade_level, section_name, id LIMIT 1`).get();
+      if (section) {
+        const exists = db.prepare('SELECT 1 FROM teacher_sections WHERE teacher_id=? AND section_id=?').get(user.id, section.id);
+        if (!exists) db.prepare('INSERT INTO teacher_sections(teacher_id, section_id) VALUES (?, ?)').run(user.id, section.id);
+      }
+    }
+  } catch (e) {
+    console.error('Unable to ensure default adviser account:', e.message);
+  }
+}
+
 ensureDefaultAdminAccount();
+ensureDefaultAdviserAccount();
 module.exports = db;
