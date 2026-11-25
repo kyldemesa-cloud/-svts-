@@ -69,36 +69,42 @@
           <h1 style="margin:0">SVTS Access</h1>
         </div>
       </div>
-      <p class="muted tiny">Use the ready admin account or an approved staff account. Student sign-up is not available.</p>
+      <p class="muted tiny">Sign in with an existing account, or request a staff account for approval.</p>
 
-      <form id="authCredForm" style="margin-top:12px">
-        <label>Full name (for account request)<input name="full_name" autocomplete="name" placeholder="Required only when creating an account"></label>
+      <form id="authCredForm" style="margin-top:12px" onsubmit="return false;">
         <label>Email<input type="email" name="email" autocomplete="username" required></label>
         <label>Password<input type="password" name="password" autocomplete="current-password" minlength="10" required></label>
-        <label id="adviserSectionWrap">Adviser section (for adviser account request)
-          <select name="section_id" id="authSectionSelect"><option value="">Select section (adviser request)</option></select>
-        </label>
+        <button class="primary full" type="button" id="authLoginBtn">Sign in</button>
 
-        <div class="auth-role-grid" style="margin-top:14px">
-          <div class="auth-role-card">
-            <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy)">Guidance Counselor / Admin</h3>
-            <p class="tiny muted" style="margin:0 0 10px">Sign in or request a Guidance Counselor/Admin account.</p>
-            <div class="actions">
-              <button class="primary smallbtn" type="button" data-auth-login="guidance_counselor">Log in</button>
-              <button class="ghost smallbtn" type="button" data-auth-request="guidance_counselor">Create account</button>
+        <div style="margin-top:14px;text-align:center">
+          <button type="button" class="link-btn" id="toggleRequestAccount">Request staff account</button>
+        </div>
+
+        <div id="requestAccountPanel" class="hidden" style="margin-top:12px">
+          <div class="auth-role-grid">
+            <div class="auth-role-card">
+              <h3 style="margin:0 0 8px;font-size:15px;color:var(--navy)">Admin / Guidance Counselor</h3>
+              <label>Full name<input name="admin_full_name" autocomplete="name" placeholder="Full name"></label>
+              <label>Requested role
+                <select name="admin_role" id="adminRequestRole">
+                  <option value="admin">Administrator</option>
+                  <option value="guidance_counselor">Guidance Counselor</option>
+                </select>
+              </label>
+              <button class="ghost full smallbtn" type="button" id="requestAdminBtn">Create Admin/Guidance account</button>
+            </div>
+            <div class="auth-role-card">
+              <h3 style="margin:0 0 8px;font-size:15px;color:var(--navy)">Adviser</h3>
+              <label>Full name<input name="adviser_full_name" autocomplete="name" placeholder="Full name"></label>
+              <label>Assigned section
+                <select name="section_id" id="authSectionSelect"><option value="">Select section</option></select>
+              </label>
+              <button class="ghost full smallbtn" type="button" id="requestAdviserBtn">Create Adviser account</button>
             </div>
           </div>
-          <div class="auth-role-card">
-            <h3 style="margin:0 0 6px;font-size:15px;color:var(--navy)">Adviser</h3>
-            <p class="tiny muted" style="margin:0 0 10px">Sign in or request an Adviser account for an assigned section.</p>
-            <div class="actions">
-              <button class="primary smallbtn" type="button" data-auth-login="class_adviser">Log in</button>
-              <button class="ghost smallbtn" type="button" data-auth-request="class_adviser">Create account</button>
-            </div>
-          </div>
+          <p class="tiny muted" style="margin-top:10px">Use the email and password entered above. Account requests require admin approval before sign-in.</p>
         </div>
       </form>
-      <p class="tiny muted" style="margin-top:12px">Account requests require admin approval before sign-in.</p>
     </div>
   </div>
 

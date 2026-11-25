@@ -807,9 +807,11 @@ function wireGlobal() {
     const form = $('#authCredForm');
     const fd = form ? new FormData(form) : null;
     return {
-      full_name: String(fd?.get('full_name') || '').trim(),
       email: String(fd?.get('email') || '').trim(),
       password: String(fd?.get('password') || ''),
+      admin_full_name: String(fd?.get('admin_full_name') || '').trim(),
+      adviser_full_name: String(fd?.get('adviser_full_name') || '').trim(),
+      admin_role: String(fd?.get('admin_role') || 'admin').trim(),
       section_id: fd?.get('section_id') ? Number(fd.get('section_id')) : null
     };
   }
@@ -819,17 +821,32 @@ function wireGlobal() {
     const r = await post('/api/auth/login', { email: c.email, password: c.password });
     me = r.user; toast('Signed in.'); await doAuthAction();
   }
-  async function doRequestFromAuth(role) {
+  async function submitAccountRequest(role, fullName, sectionId = null) {
     const c = authCreds();
-    if (!c.full_name) { toast('Full name is required for account requests.'); return; }
+    if (!fullName) { toast('Full name is required for account requests.'); return; }
     if (!c.email || !c.password) { toast('Email and password are required.'); return; }
-    if (role === 'class_adviser' && !c.section_id) { toast('Select the adviser section for an adviser account request.'); return; }
-    const payload = { name: c.full_name, email: c.email, password: c.password, role, section_id: role === 'class_adviser' ? c.section_id : null };
-    await post('/api/auth/register-admin', payload);
+    if (role === 'class_adviser' && !sectionId) { toast('Select the adviser section for an adviser account request.'); return; }
+    await post('/api/auth/register-admin', { name: fullName, email: c.email, password: c.password, role, section_id: role === 'class_adviser' ? sectionId : null });
     toast('Account request submitted for admin approval.');
   }
-  $$('[data-auth-login]').forEach(btn => btn.onclick = async () => { try { await doLoginFromAuth(); } catch (err) { toast(err.message); } });
-  $$('[data-auth-request]').forEach(btn => btn.onclick = async () => { try { await doRequestFromAuth(btn.dataset.authRequest); } catch (err) { toast(err.message); } });
+  $('#authLoginBtn') && ($('#authLoginBtn').onclick = async () => { try { await doLoginFromAuth(); } catch (err) { toast(err.message); } });
+  $('#toggleRequestAccount') && ($('#toggleRequestAccount').onclick = () => {
+    const panel = $('#requestAccountPanel');
+    panel?.classList.toggle('hidden');
+    $('#toggleRequestAccount').textContent = panel?.classList.contains('hidden') ? 'Request staff account' : 'Hide account request';
+  });
+  $('#requestAdminBtn') && ($('#requestAdminBtn').onclick = async () => {
+    try {
+      const c = authCreds();
+      await submitAccountRequest(c.admin_role || 'admin', c.admin_full_name, null);
+    } catch (err) { toast(err.message); }
+  });
+  $('#requestAdviserBtn') && ($('#requestAdviserBtn').onclick = async () => {
+    try {
+      const c = authCreds();
+      await submitAccountRequest('class_adviser', c.adviser_full_name, c.section_id);
+    } catch (err) { toast(err.message); }
+  });
   $$('.open-auth').forEach(b => b.onclick = async () => { await loadSignupOptions().catch(()=>{}); fillAuthSectionSelect(); $('#authModal')?.classList.remove('hidden'); $('#authModal')?.setAttribute('aria-hidden','false'); });
   $('#authModalClose') && ($('#authModalClose').onclick = closeAuthModal);
   $('#authModal')?.addEventListener('click', (e) => { if (e.target.id === 'authModal') closeAuthModal(); });
