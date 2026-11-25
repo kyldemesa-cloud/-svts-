@@ -3,8 +3,10 @@ WORKDIR /app
 
 # better-sqlite3 is a native module; install build tools for npm install if prebuilt binaries are unavailable
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ \
+  && apt-get install -y --no-install-recommends python3 make g++ python-is-python3 \
   && rm -rf /var/lib/apt/lists/*
+
+ENV PYTHON=/usr/bin/python3
 
 COPY package*.json ./
 RUN npm install --omit=dev

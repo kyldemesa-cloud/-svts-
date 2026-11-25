@@ -22,6 +22,7 @@ dist
 build
 tmp
 temp
+.node22
 svts-update/.env
 schoolviolation
 svts
