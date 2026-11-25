@@ -35,6 +35,8 @@ button { cursor: pointer; border: 0; border-radius: 10px; padding: 10px 14px; fo
 button:disabled { opacity: .55; cursor: not-allowed; }
 .primary { background: linear-gradient(135deg, var(--blue), #2563eb); color: #fff; box-shadow: 0 6px 16px rgba(37,99,235,.22); }
 .ghost { background: #eef4fb; color: var(--navy); border: 1px solid #d7e2ef; }
+.danger-btn { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.danger-btn:hover { background: #fecaca; }
 .full { width: 100%; }
 .hidden { display: none !important; }
 .muted { color: var(--muted); }
@@ -42,6 +44,10 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .eyebrow { font-size: 11px; letter-spacing: 1.5px; color: #4f46e5; font-weight: 800; margin: 0 0 6px; text-transform: uppercase; }
 
 .brand-mark { width: 44px; height: 44px; display: grid; place-items: center; background: linear-gradient(135deg, var(--navy), var(--blue)); color: #fff; border-radius: 14px; font-weight: 900; flex: 0 0 auto; box-shadow: 0 8px 18px rgba(19,40,70,.18); }
+.brand-logo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #fff; border: 2px solid #dbe7f5; box-shadow: 0 6px 14px rgba(19,40,70,.12); flex: 0 0 auto; }
+.brand-logo-sm { width: 40px; height: 40px; }
+.brand-logo-lg { width: 58px; height: 58px; }
+.auth-modal-brand { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; padding-right: 34px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
 .colorful-card { background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); border-color: #d7e3f5; }
 .accent-card { border-top: 4px solid var(--blue); }
@@ -70,8 +76,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .landing-info { max-width: 1320px; margin: 18px auto 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
 .info-card h3 { margin: 0 0 6px; color: var(--navy); }
 
-.auth-modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; padding: 20px; z-index: 50; }
-.auth-modal-card { width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto; position: relative; }
+.auth-modal { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: grid; place-items: center; padding: 20px; z-index: 100; }
+.auth-modal-card { width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto; position: relative; background: #ffffff; border: 1px solid #d9e4f2; border-radius: 20px; padding: 22px; box-shadow: 0 24px 60px rgba(15,23,42,.28); }
 .auth-modal-close { position: absolute; top: 12px; right: 12px; }
 .auth-card h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 4px; color: var(--navy); }
 .iconbtn { width: 36px; height: 36px; padding: 0; display: inline-grid; place-items: center; border-radius: 10px; }

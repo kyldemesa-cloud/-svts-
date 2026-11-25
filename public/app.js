@@ -13,11 +13,31 @@ let users = [];
 let pending = [];
 let view = 'dashboard';
 let violationFilters = { added_from: '', added_to: '', grade_level: '', section_id: '', strand: '', track: '', violation_type: '', service_status: '', search: '' };
+let selectedSchoolYearId = 0;
 let dashboardRecent = { items: [], total: 0 };
 let calendarState = { month: new Date().toISOString().slice(0, 7), days: [], selectedDate: '', selectedItems: [] };
 let signupOptionsCache = null;
 let studentSearchResults = [];
 let studentSearchQuery = '';
+
+function activeSchoolYear() { return years.find(y => y.is_active) || years[0] || null; }
+function selectedSchoolYear() { return years.find(y => Number(y.id) === Number(selectedSchoolYearId)) || activeSchoolYear(); }
+function ensureSelectedSchoolYear() {
+  if (selectedSchoolYearId && years.some(y => Number(y.id) === Number(selectedSchoolYearId))) return selectedSchoolYearId;
+  const active = activeSchoolYear();
+  selectedSchoolYearId = active ? Number(active.id) : 0;
+  return selectedSchoolYearId;
+}
+function yearOptionsHtml(includeAll = false) {
+  const opts = [];
+  if (includeAll) opts.push(`<option value="" ${!selectedSchoolYearId ? 'selected' : ''}>All school years</option>`);
+  years.forEach(y => {
+    const id = Number(y.id);
+    const label = `${y.label}${y.is_active ? ' (Active)' : ' (Archived/Inactive)'}`;
+    opts.push(`<option value="${id}" ${id === Number(selectedSchoolYearId) ? 'selected' : ''}>${esc(label)}</option>`);
+  });
+  return opts.join('');
+}
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;', "'":'&#39;' }[c]));
 
@@ -32,7 +52,7 @@ const get = (url) => api(url);
 const post = (url, data) => api(url, { method: 'POST', body: JSON.stringify(data) });
 const put = (url, data) => api(url, { method: 'PUT', body: JSON.stringify(data) });
 const patch = (url, data) => api(url, { method: 'PATCH', body: JSON.stringify(data) });
-const del = (url) => api(url, { method: 'DELETE' });
+const del = (url, data) => api(url, data ? { method: 'DELETE', body: JSON.stringify(data) } : { method: 'DELETE' });
 
 function toast(message) {
   const t = $('#toast');
@@ -187,13 +207,16 @@ function wireFilterForm(prefix, rerenderFn) {
 }
 
 async function loadRecentViolations() {
-  const res = await api('/api/dashboard/recent-violations?' + filterParams().toString());
+  const qs = filterParams();
+  if (selectedSchoolYearId && !qs.get('school_year_id')) qs.set('school_year_id', selectedSchoolYearId);
+  const res = await api('/api/dashboard/recent-violations?' + qs.toString());
   cases = res.items || [];
   dashboardRecent = { items: res.items || [], total: res.total || 0, page: res.page || 1, limit: res.limit || 0 };
 }
 async function loadCalendar() {
   try {
     const qs = new URLSearchParams({ month: calendarState.month });
+    if (selectedSchoolYearId) qs.set('school_year_id', selectedSchoolYearId);
     ['grade_level','section_id','strand','track','service_status'].forEach(k => { if (violationFilters[k]) qs.set(k, violationFilters[k]); });
     const r = await api('/api/community-service/calendar?' + qs.toString());
     calendarState.days = r.days || [];
@@ -204,6 +227,7 @@ async function loadCalendarDay(date) {
   calendarState.selectedDate = date;
   try {
     const qs = new URLSearchParams();
+    if (selectedSchoolYearId) qs.set('school_year_id', selectedSchoolYearId);
     ['grade_level','section_id','strand','track'].forEach(k => { if (violationFilters[k]) qs.set(k, violationFilters[k]); });
     const r = await api('/api/community-service/calendar/' + encodeURIComponent(date) + (qs.toString() ? ('?' + qs.toString()) : ''));
     calendarState.selectedItems = r.items || [];
@@ -212,10 +236,20 @@ async function loadCalendarDay(date) {
 
 async function loadData() {
   years = await get('/api/years');
-  sections = await get('/api/sections');
+  ensureSelectedSchoolYear();
+  const yearQs = selectedSchoolYearId ? ('?year=' + encodeURIComponent(selectedSchoolYearId)) : '';
+  sections = await get('/api/sections' + yearQs);
   offenses = await get('/api/offenses');
-  try { await loadRecentViolations(); } catch { cases = await get('/api/violations'); dashboardRecent = { items: cases, total: cases.length }; }
-  try { service = await get('/api/community-service'); } catch { service = []; }
+  try { await loadRecentViolations(); } catch {
+    const qs = new URLSearchParams(filterParams());
+    if (selectedSchoolYearId) qs.set('school_year_id', selectedSchoolYearId);
+    cases = await get('/api/violations?' + qs.toString());
+    dashboardRecent = { items: cases, total: cases.length };
+  }
+  try {
+    const qs = selectedSchoolYearId ? ('?school_year_id=' + encodeURIComponent(selectedSchoolYearId)) : '';
+    service = await get('/api/community-service' + qs);
+  } catch { service = []; }
   if (me.role === 'admin') {
     try { users = await get('/api/users'); } catch { users = []; }
     try { pending = await get('/api/admin/pending'); } catch { pending = []; }
@@ -294,14 +328,15 @@ function renderStudentSearchCard() {
 
 function renderDashboard() {
   const isAdmin = me.role === 'admin';
+  const selYear = selectedSchoolYear();
   const activeYears = years.filter(y => y.is_active).length;
   const openCases = (dashboardRecent.items || cases).filter(c => !/resolved|closed/i.test(c.status || '')).length;
   const svcOpen = service.filter(x => !/complete/i.test(x.status || '')).length;
   let html = `<div class="page-head"><div>
       <p class="eyebrow">SAN JOSE LITEX SENIOR HIGH SCHOOL</p>
       <h2 class="section-title" style="margin:0;font-size:30px;color:var(--navy)">Welcome, ${esc(me.full_name)}</h2>
-      <p class="muted" style="margin-top:4px">${isAdmin ? 'Grade 11-12 dashboard with LRN search, automatic case numbers, and admin-defined track/strand sections.' : 'Grade 11-12 dashboard for your assigned section records and LRN lookup.'}</p>
-    </div></div>`;
+      <p class="muted" style="margin-top:4px">${isAdmin ? 'Grade 11-12 dashboard with LRN search, automatic case numbers, and admin-defined track/strand sections.' : 'Grade 11-12 dashboard for your assigned section records and LRN lookup.'} Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}.</p>
+    </div><div style="min-width:260px"><label>View school year<select id="dashboardYearSelect">${yearOptionsHtml(false)}</select></label></div></div>`;
 
   html += `<div class="cards">${[
     ['Grade 11-12 sections', sections.length, 'Configured sections'],
@@ -341,6 +376,11 @@ function renderDashboard() {
     try { await loadStudentSearch($('#dashboardLrnSearchInput')?.value || ''); renderDashboard(); } catch (err) { toast(err.message); }
   });
   $('#dashboardLrnSearchClear') && ($('#dashboardLrnSearchClear').onclick = async () => { studentSearchQuery = ''; studentSearchResults = []; renderDashboard(); });
+  $('#dashboardYearSelect') && ($('#dashboardYearSelect').onchange = async (e) => {
+    selectedSchoolYearId = Number(e.target.value || 0);
+    await loadData();
+    renderDashboard();
+  });
 }
 
 function renderCases() {
@@ -412,6 +452,7 @@ function renderSections() {
 
 
 function renderCommunity() {
+  const selYear = selectedSchoolYear();
   const now = new Date(calendarState.month + '-01T00:00:00');
   const monthLabel = Number.isNaN(now.getTime()) ? calendarState.month : now.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -423,13 +464,14 @@ function renderCommunity() {
     <td>${esc(s.case_number || '—')}</td>
     <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(s))}</div></td>
     <td>G${esc(s.grade_level || '')} · ${esc(s.section_name || '')}<div class="tiny muted">${esc(trackStrandText(s) || '—')}</div></td>
-    <td>${esc(s.offense || '')}<div class="tiny muted">${esc(s.service_type || '')}</div></td>
+    <td>${esc(s.offense || '')}<div class="tiny muted">${esc(s.service_type || s.community_service_type || '')}</div></td>
     <td>${fmtDate(s.due_date)}</td>
     <td>${badge(s.status || '')}</td>
   </tr>`).join('');
 
   $('#content').innerHTML = `
     ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button></div>`)}
+    <div class="card" style="margin-bottom:12px"><div class="row" style="align-items:end"><div style="min-width:260px"><label>School year archive<select id="communityYearSelect">${yearOptionsHtml(false)}</select></label></div><div class="tiny muted">Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}. Calendar and service records are scoped to this year.</div></div></div>
     ${renderFilterForm('calf')}
     <div style="height:12px"></div>
     <div class="calendar-layout">
@@ -452,7 +494,7 @@ function renderCommunity() {
         return `<tr>
           <td>${esc(s.case_number || '—')}</td>
           <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(s))}</div></td>
-          <td>${esc(s.service_type || '—')}</td>
+          <td>${esc(s.service_type || s.community_service_type || '—')}</td>
           <td>${hoursNum(s.required_service_hours).toFixed(2)}</td>
           <td>${hoursNum(s.completed_service_hours).toFixed(2)}</td>
           <td>${rem.toFixed(2)}</td>
@@ -460,10 +502,14 @@ function renderCommunity() {
           <td>${badge(s.status || '')}</td>
           <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="in_progress">Mark in progress</button><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="completed">Complete</button></div>` : '—'}</td>
         </tr>`;
-      }).join(''))}
+      }).join('') || '<tr><td colspan="9" class="muted">No service records for this school year.</td></tr>')}
     </div>`;
 
-  wireFilterForm('calf', () => { renderCommunity(); });
+  $('#communityYearSelect') && ($('#communityYearSelect').onchange = async (e) => {
+    selectedSchoolYearId = Number(e.target.value || 0);
+    await loadData(); await loadCalendar(); renderCommunity();
+  });
+  wireFilterForm('calf', async () => { await loadCalendar(); renderCommunity(); });
   $('#calPrev') && ($('#calPrev').onclick = async () => { const d = new Date(calendarState.month + '-01T00:00:00'); d.setMonth(d.getMonth() - 1); calendarState.month = d.toISOString().slice(0,7); calendarState.selectedDate=''; await loadCalendar(); renderCommunity(); });
   $('#calNext') && ($('#calNext').onclick = async () => { const d = new Date(calendarState.month + '-01T00:00:00'); d.setMonth(d.getMonth() + 1); calendarState.month = d.toISOString().slice(0,7); calendarState.selectedDate=''; await loadCalendar(); renderCommunity(); });
   $$('[data-cal-date]').forEach(btn => btn.onclick = async () => { await loadCalendarDay(btn.dataset.calDate); renderCommunity(); });
@@ -475,16 +521,62 @@ function renderCommunity() {
 function renderAccounts() {
   if (me.role !== 'admin') { $('#content').innerHTML = `<div class="card">Not authorized.</div>`; return; }
   const pendingRows = pending.map(p => `<tr>
-    <td>${esc(p.full_name)}</td><td>${esc(p.email)}</td><td>${esc(p.role)}</td><td>${esc(sectionLabel({grade_level:p.grade_level,section_name:p.section_name,track:p.track,strand:p.strand}))}</td><td>${fmtDate(p.created_at)}</td>
+    <td>${esc(p.full_name)}</td><td>${esc(p.email || '-')}</td><td>${esc(p.role)}</td><td>${esc(sectionLabel({grade_level:p.grade_level,section_name:p.section_name,track:p.track,strand:p.strand}) || '-')}</td><td>${fmtDate(p.created_at)}</td>
     <td class="actions"><button class="primary smallbtn" data-approve="${p.id}">Approve</button><button class="ghost smallbtn" data-reject="${p.id}">Reject</button></td>
   </tr>`).join('');
-  const userRows = users.map(u => `<tr><td>${esc(u.full_name)}</td><td>${esc(u.email)}</td><td>${esc(u.role)}</td><td>${badge(u.verified ? 'verified' : 'pending')}</td><td>${badge(u.status || 'active')}</td><td>${fmtDate(u.created_at)}</td></tr>`).join('');
+  const userRows = users.map(u => {
+    const isSelf = Number(u.id) === Number(me.id);
+    const status = u.status || 'active';
+    let actions = '<span class="muted tiny">-</span>';
+    if (!isSelf) {
+      if (status === 'verified') {
+        actions = `<div class="actions">
+          <button class="ghost smallbtn" data-user-status="${u.id}" data-status="suspended">Suspend</button>
+          <button class="danger-btn smallbtn" data-delete-user="${u.id}" data-name="${esc(u.full_name || u.email || 'this account')}">Delete permanently</button>
+        </div>`;
+      } else if (status === 'suspended') {
+        actions = `<div class="actions">
+          <button class="primary smallbtn" data-user-status="${u.id}" data-status="verified">Activate</button>
+          <button class="danger-btn smallbtn" data-delete-user="${u.id}" data-name="${esc(u.full_name || u.email || 'this account')}">Delete permanently</button>
+        </div>`;
+      } else if (status === 'pending') {
+        actions = `<div class="actions"><span class="tiny muted">Approve/reject in pending requests</span><button class="danger-btn smallbtn" data-delete-user="${u.id}" data-name="${esc(u.full_name || u.email || 'this account')}">Delete permanently</button></div>`;
+      } else {
+        actions = `<div class="actions"><button class="danger-btn smallbtn" data-delete-user="${u.id}" data-name="${esc(u.full_name || u.email || 'this account')}">Delete permanently</button></div>`;
+      }
+    } else {
+      actions = '<span class="tiny muted">Current account</span>';
+    }
+    return `<tr>
+      <td><strong>${esc(u.full_name || '-')}</strong></td>
+      <td>${esc(u.email || '-')}</td>
+      <td>${esc(u.role || '-')}</td>
+      <td>${badge(status)}</td>
+      <td>${fmtDate(u.created_at)}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
   $('#content').innerHTML =
     pageHead('Accounts & approvals', '') +
     `<div class="card colorful-card"><h3 style="margin-top:0">Pending staff requests</h3>${table(['Name','Email','Role','Assigned section','Requested','Actions'], pendingRows || `<tr><td colspan="6" class="muted">No pending requests.</td></tr>`)}</div>` +
-    `<div style="height:12px"></div><div class="card"><h3 style="margin-top:0">User accounts</h3>${table(['Name','Email','Role','Verified','Status','Created'], userRows)}</div>`;
+    `<div style="height:12px"></div><div class="card"><h3 style="margin-top:0">User accounts</h3><p class="tiny muted" style="margin-top:0">Admins can suspend or reactivate accounts. Permanent deletion requires two confirmations and may be blocked if the account is linked to required records.</p>${table(['Name','Email','Role','Status','Created','Actions'], userRows)}</div>`;
   $$('[data-approve]').forEach(b => b.onclick = async () => { try { await post('/api/admin/pending/' + b.dataset.approve + '/approve', {}); toast('Approved.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); } });
   $$('[data-reject]').forEach(b => b.onclick = async () => { try { await post('/api/admin/pending/' + b.dataset.reject + '/reject', {}); toast('Rejected.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); } });
+  $$('[data-user-status]').forEach(b => b.onclick = async () => {
+    const id = Number(b.dataset.userStatus);
+    const status = b.dataset.status;
+    const actionLabel = status === 'suspended' ? 'suspend' : 'activate';
+    if (!confirm(`Are you sure you want to ${actionLabel} this account?`)) return;
+    try { await put('/api/users/' + id + '/status', { status }); toast(status === 'suspended' ? 'Account suspended.' : 'Account activated.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); }
+  });
+  $$('[data-delete-user]').forEach(b => b.onclick = async () => {
+    const id = Number(b.dataset.deleteUser);
+    const name = b.dataset.name || 'this account';
+    if (!confirm(`Permanently delete the account for ${name}?`)) return;
+    const second = window.prompt('Second verification: type YES to permanently delete this account. This cannot be undone.');
+    if (String(second || '').trim().toUpperCase() !== 'YES') { toast('Permanent deletion cancelled.'); return; }
+    try { await del('/api/users/' + id, { confirm: 'DELETE', confirmPermanent: true }); toast('Account permanently deleted.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); }
+  });
 }
 
 function renderOffenses() {

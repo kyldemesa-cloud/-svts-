@@ -317,6 +317,8 @@ function buildViolationsFilterQuery(req, { forExport = false } = {}) {
   const grade = normalizeGradeLevel(q.grade_level || q.grade);
   if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
   if (q.section_id) { filters.push('st.section_id = ?'); params.push(Number(q.section_id)); }
+  const schoolYearId = Number(q.school_year_id || q.year || q.yearId || 0);
+  if (schoolYearId) { filters.push('s.school_year_id = ?'); params.push(schoolYearId); }
   const strand = normalizeStrand(q.strand);
   if (strand) { filters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); params.push(strand, strand, strand); }
   const track = normalizeTrack(q.track);
@@ -374,6 +376,8 @@ function buildCommunityServiceExportQuery(req) {
   const grade = normalizeGradeLevel(q.grade_level || q.grade);
   if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
   if (q.section_id) { filters.push('st.section_id = ?'); params.push(Number(q.section_id)); }
+  const schoolYearId = Number(q.school_year_id || q.year || q.yearId || 0);
+  if (schoolYearId) { filters.push('s.school_year_id = ?'); params.push(schoolYearId); }
   const strand = normalizeStrand(q.strand);
   if (strand) { filters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); params.push(strand, strand, strand); }
   const track = normalizeTrack(q.track);
@@ -730,6 +734,46 @@ app.put('/api/users/:id/status', auth, admin, (req, res) => {
   db.prepare('UPDATE users SET status=? WHERE id=?').run(status, id);
   audit(req.session.user, 'Update user status', 'user', id, status);
   res.json({ ok: true });
+});
+
+app.delete('/api/users/:id', auth, admin, (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const confirmText = String(req.body?.confirm || req.body?.confirmation || '').trim().toUpperCase();
+    if (req.body?.confirmPermanent !== true && confirmText !== 'DELETE' && confirmText !== 'YES') {
+      return res.status(400).json({ error: 'Permanent deletion requires explicit confirmation.' });
+    }
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Invalid account.' });
+    if (id === req.session.user.id) return res.status(400).json({ error: 'You cannot delete your own account.' });
+
+    const user = db.prepare('SELECT id, full_name, email, role, status FROM users WHERE id=?').get(id);
+    if (!user) return res.status(404).json({ error: 'Account not found.' });
+
+    const tx = db.transaction(() => {
+      // clean up nullable/dependent references where safe
+      try { db.prepare('DELETE FROM teacher_sections WHERE teacher_id=?').run(id); } catch {}
+      try { db.prepare('DELETE FROM sessions WHERE sess LIKE ?').run(`%"id":${id}%`); } catch {}
+      try { db.prepare('UPDATE users SET verified_by=NULL WHERE verified_by=?').run(id); } catch {}
+      try { db.prepare('UPDATE violations SET verified_by=NULL WHERE verified_by=?').run(id); } catch {}
+      try { db.prepare('UPDATE student_profiles SET user_id=NULL WHERE user_id=?').run(id); } catch {}
+      try { db.prepare('UPDATE section_assignments SET changed_by=NULL WHERE changed_by=?').run(id); } catch {}
+      try { db.prepare('UPDATE community_service_logs SET verified_by=NULL, recorded_by=NULL WHERE verified_by=? OR recorded_by=?').run(id, id); } catch {}
+      try { db.prepare('UPDATE service_attendance SET recorded_by=NULL WHERE recorded_by=?').run(id); } catch {}
+      try { db.prepare('UPDATE audit_logs SET user_id=NULL WHERE user_id=?').run(id); } catch {}
+      db.prepare('DELETE FROM users WHERE id=?').run(id);
+    });
+
+    try {
+      tx();
+    } catch (e) {
+      return res.status(409).json({ error: 'Cannot permanently delete this account because it is linked to existing records (violations, service logs, or other required data). Suspend the account instead.' });
+    }
+
+    audit(req.session.user, 'Delete user account', 'user', id, `${user.full_name} (${user.email || 'no email'})`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Unable to delete account.' });
+  }
 });
 
 app.get('/api/teachers/:id/sections', auth, admin, (req, res) => {
@@ -1135,11 +1179,18 @@ app.patch('/api/violations/:id', auth, admin, (req, res) => {
 app.get('/api/community-service', auth, verified, (req, res) => {
   let q = 'SELECT cs.*, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level, st.track AS track_name, s.section_name, s.track AS section_track, s.strand AS strand_name, y.label school_year, v.case_number, COALESCE((SELECT SUM(hours_served) FROM service_attendance a WHERE a.service_id=cs.id),0) hours_completed, COALESCE((SELECT SUM(day_completed) FROM service_attendance a WHERE a.service_id=cs.id),0) days_completed FROM community_service cs JOIN students st ON st.id=cs.student_id JOIN sections s ON s.id=st.section_id JOIN school_years y ON y.id=cs.school_year_id LEFT JOIN violations v ON v.id=cs.violation_id';
   const p = [];
+  const filters = [];
 
   if (isSectionStaffRole(req.session.user.role)) {
-    q += ' WHERE st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
+    filters.push('st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)');
     p.push(req.session.user.id);
   }
+  const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+  if (schoolYearId) {
+    filters.push('cs.school_year_id = ?');
+    p.push(schoolYearId);
+  }
+  if (filters.length) q += ' WHERE ' + filters.join(' AND ');
 
   q += ' ORDER BY cs.created_at DESC';
   res.json(db.prepare(q).all(...p));
@@ -1293,6 +1344,8 @@ app.get('/api/community-service/calendar', auth, verified, (req, res) => {
     const grade = normalizeGradeLevel(req.query.grade_level || req.query.grade);
     if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
     if (req.query.section_id) { filters.push('st.section_id = ?'); params.push(Number(req.query.section_id)); }
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    if (schoolYearId) { filters.push('s.school_year_id = ?'); params.push(schoolYearId); }
     const strand = normalizeStrand(req.query.strand);
     if (strand) { filters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); params.push(strand, strand, strand); }
     const track = normalizeTrack(req.query.track);
@@ -1329,6 +1382,8 @@ app.get('/api/community-service/calendar/:date', auth, verified, (req, res) => {
     const params = [date];
     if (req.query.grade_level) { filters.push('s.grade_level = ?'); params.push(clean(req.query.grade_level, 20)); }
     if (req.query.section_id) { filters.push('st.section_id = ?'); params.push(Number(req.query.section_id)); }
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    if (schoolYearId) { filters.push('s.school_year_id = ?'); params.push(schoolYearId); }
     const access = studentAccessClause(req, 'st');
     let where = ' WHERE substr(l.service_date,1,10)=?';
     if (filters.length) where += ' AND ' + filters.join(' AND ');
