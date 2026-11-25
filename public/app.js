@@ -329,7 +329,6 @@ function renderStudentSearchCard() {
 function renderDashboard() {
   const isAdmin = me.role === 'admin';
   const selYear = selectedSchoolYear();
-  const activeYears = years.filter(y => y.is_active).length;
   const openCases = (dashboardRecent.items || cases).filter(c => !/resolved|closed/i.test(c.status || '')).length;
   const svcOpen = service.filter(x => !/complete/i.test(x.status || '')).length;
   let html = `<div class="page-head"><div>
@@ -340,7 +339,6 @@ function renderDashboard() {
 
   html += `<div class="cards">${[
     ['Grade 11-12 sections', sections.length, 'Configured sections'],
-    ['School years', years.length, `${activeYears} active / ${Math.max(0, years.length - activeYears)} inactive`],
     ['Recent cases', dashboardRecent.total || cases.length, `${openCases} open in current view`],
     ['Active service items', svcOpen, 'Community service tracking']
   ].map(([label, value, sub], i) => `<div class="card kpi accent-kpi color-kpi-${i % 4}"><div class="label">${label}</div><strong>${value}</strong><div class="sub">${sub}</div></div>`).join('')}</div>`;
