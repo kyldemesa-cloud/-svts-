@@ -104,14 +104,38 @@ function passwordStrong(pw) {
 const STAFF_REQUEST_ROLES = ['admin', 'guidance_counselor', 'class_adviser'];
 const STAFF_ROLES = ['admin', 'teacher', 'guidance_counselor', 'class_adviser'];
 const SECTION_STAFF_ROLES = ['teacher', 'guidance_counselor', 'class_adviser'];
+const ALLOWED_GRADE_LEVELS = ['11', '12'];
+const SHS_STRAND_GROUPS = [
+  'STEM',
+  'ABM',
+  'HUMSS',
+  'GAS',
+  'TVL - ICT',
+  'TVL - HE',
+  'TVL - IA',
+  'TVL - Agri-Fishery',
+  'Sports',
+  'Arts and Design'
+];
+
+function normalizeGradeLevel(v) {
+  const g = String(v ?? '').trim();
+  return ALLOWED_GRADE_LEVELS.includes(g) ? g : '';
+}
+
+function normalizeShsStrand(v) {
+  const s = clean(v, 80);
+  if (!s) return '';
+  const match = SHS_STRAND_GROUPS.find(x => x.toLowerCase() === s.toLowerCase());
+  return match || '';
+}
 
 function roleLabel(role) {
   return {
     admin: 'Administrator',
     teacher: 'Teacher',
     guidance_counselor: 'Guidance Counselor',
-    class_adviser: 'Class Adviser',
-    student: 'Student'
+    class_adviser: 'Class Adviser'
   }[role] || role;
 }
 
@@ -168,47 +192,21 @@ function emailUnique(email, excludeUserId = null) {
   return !row;
 }
 
-function tracksStrandsEnabledForGrade(gradeLevel) {
-  return ['11', '12', 11, 12].includes(gradeLevel);
-}
-
-function getTrackStrandConfig() {
-  const tracks = db.prepare('SELECT id,code,name,is_active,created_at FROM tracks WHERE is_active=1 ORDER BY name,code').all();
-  const strands = db.prepare('SELECT s.id,s.track_id,s.code,s.name,s.is_active,s.created_at,t.name track_name,t.code track_code FROM strands s LEFT JOIN tracks t ON t.id=s.track_id WHERE s.is_active=1 ORDER BY s.name,s.code').all();
-  return { tracks, strands, enabled: tracks.length > 0 || strands.length > 0 };
-}
-
-function validateTrackStrandForGrade(gradeLevel, trackId, strandId, { requiredIfEnabled = false } = {}) {
-  const g = String(gradeLevel ?? '').trim();
-  if (!tracksStrandsEnabledForGrade(g)) {
-    return { track_id: null, strand_id: null };
-  }
-  const cfg = getTrackStrandConfig();
-  const enabled = cfg.enabled;
-  if (!enabled) {
-    return { track_id: null, strand_id: null };
-  }
-  const tId = trackId ? Number(trackId) : null;
-  const sId = strandId ? Number(strandId) : null;
-  if (requiredIfEnabled && !sId && !tId) {
-    return { error: 'Track/strand is required for Grades 11 and 12 when configured.' };
-  }
-  if (tId && !db.prepare('SELECT 1 FROM tracks WHERE id=? AND is_active=1').get(tId)) {
-    return { error: 'Selected track is invalid or inactive.' };
-  }
-  if (sId) {
-    const strand = db.prepare('SELECT id,track_id FROM strands WHERE id=? AND is_active=1').get(sId);
-    if (!strand) return { error: 'Selected strand is invalid or inactive.' };
-    if (tId && strand.track_id && Number(strand.track_id) !== tId) {
-      return { error: 'Selected strand does not belong to the selected track.' };
-    }
-    return { track_id: tId || (strand.track_id ? Number(strand.track_id) : null), strand_id: sId };
-  }
-  return { track_id: tId, strand_id: null };
+function validateGradeAndStrand(gradeLevel, strandValue) {
+  const grade = normalizeGradeLevel(gradeLevel);
+  if (!grade) return { error: 'Only Grade 11 and Grade 12 are allowed.' };
+  const strand = normalizeShsStrand(strandValue);
+  return { grade_level: grade, strand, track_id: null, strand_id: null };
 }
 
 function upsertStudentProfileFromStudent(studentId) {
-  const s = db.prepare('SELECT id, user_id, student_number, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact FROM students WHERE id=?').get(studentId);
+  const s = db.prepare(`
+    SELECT st.id, st.user_id, st.student_number, st.grade_level, st.section_id, st.track_id, st.strand_id, st.guardian_name, st.guardian_contact,
+           sec.strand AS section_strand
+    FROM students st
+    LEFT JOIN sections sec ON sec.id = st.section_id
+    WHERE st.id = ?
+  `).get(studentId);
   if (!s) return;
   db.prepare(`
     INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact)
@@ -222,6 +220,69 @@ function upsertStudentProfileFromStudent(studentId) {
       guardian_name=excluded.guardian_name,
       guardian_contact=excluded.guardian_contact
   `).run(s.user_id || null, s.student_number || null, s.grade_level || null, s.section_id || null, s.track_id || null, s.strand_id || null, s.guardian_name || '', s.guardian_contact || '');
+}
+
+function upsertStudentForViolation(payload, user) {
+  const studentNumber = clean(payload.student_number || payload.studentNumber || payload.number, 40);
+  const firstName = clean(payload.first_name || payload.firstName || payload.first, 80);
+  const lastName = clean(payload.last_name || payload.lastName || payload.last, 80);
+  const sectionId = Number(payload.section_id || payload.sectionId);
+  const guardianName = clean(payload.guardian_name || payload.guardianName, 150);
+  const guardianContact = clean(payload.guardian_contact || payload.guardianContact, 50);
+
+  if (!studentNumber || !firstName || !lastName || !sectionId) {
+    return { error: 'Student number, first name, last name, and section are required.' };
+  }
+
+  const section = db.prepare(`
+    SELECT s.*, y.label AS school_year_label
+    FROM sections s
+    JOIN school_years y ON y.id = s.school_year_id
+    WHERE s.id = ?
+  `).get(sectionId);
+  if (!section) return { error: 'Selected section is invalid.' };
+
+  const grade = normalizeGradeLevel(payload.grade_level || payload.grade || section.grade_level);
+  if (!grade) return { error: 'Only Grade 11 and Grade 12 are allowed.' };
+  if (String(section.grade_level) !== grade) {
+    return { error: 'Selected section does not match the student grade level.' };
+  }
+
+  const strand = normalizeShsStrand(payload.strand ?? payload.strand_group ?? section.strand ?? '');
+  const existing = db.prepare('SELECT * FROM students WHERE student_number = ?').get(studentNumber);
+
+  if (existing) {
+    if (existing.active !== 1) {
+      return { error: 'This student number belongs to an inactive student record and cannot be used.' };
+    }
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE students
+        SET first_name = ?, last_name = ?, grade_level = ?, section_id = ?, track_id = NULL, strand_id = NULL,
+            guardian_name = ?, guardian_contact = ?
+        WHERE id = ?
+      `).run(firstName, lastName, grade, sectionId, guardianName, guardianContact, existing.id);
+
+      if (Number(existing.section_id) !== Number(sectionId)) {
+        db.prepare('INSERT INTO section_assignments(student_id, old_section_id, new_section_id, changed_by, reason) VALUES (?,?,?,?,?)')
+          .run(existing.id, existing.section_id, sectionId, user?.id || null, 'Updated via violation recording');
+      }
+      upsertStudentProfileFromStudent(existing.id);
+      return db.prepare('SELECT * FROM students WHERE id = ?').get(existing.id);
+    });
+    return { student: tx(), created: false };
+  }
+
+  const tx = db.transaction(() => {
+    const r = db.prepare(`
+      INSERT INTO students(student_number,first_name,last_name,grade_level,section_id,track_id,strand_id,guardian_name,guardian_contact,active)
+      VALUES (?,?,?,?,?,NULL,NULL,?,?,1)
+    `).run(studentNumber, firstName, lastName, grade, sectionId, guardianName, guardianContact);
+    upsertStudentProfileFromStudent(Number(r.lastInsertRowid));
+    audit(user, 'Create student record (violation)', 'student', r.lastInsertRowid, studentNumber);
+    return db.prepare('SELECT * FROM students WHERE id = ?').get(Number(r.lastInsertRowid));
+  });
+  return { student: tx(), created: true };
 }
 
 function recalcViolationService(violationId) {
@@ -255,19 +316,22 @@ function buildViolationsFilterQuery(req, { forExport = false } = {}) {
   const params = [];
   if (fromSql) { filters.push('v.created_at >= ?'); params.push(fromSql); }
   if (toSql) { filters.push('v.created_at <= ?'); params.push(toSql); }
-  if (q.grade_level) { filters.push('s.grade_level = ?'); params.push(clean(q.grade_level, 20)); }
+  const grade = normalizeGradeLevel(q.grade_level || q.grade);
+  if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
   if (q.section_id) { filters.push('st.section_id = ?'); params.push(Number(q.section_id)); }
-  if (q.track_id) { filters.push('COALESCE(st.track_id, s.track_id) = ?'); params.push(Number(q.track_id)); }
-  if (q.strand_id) { filters.push('COALESCE(st.strand_id, s.strand_id) = ?'); params.push(Number(q.strand_id)); }
+  if (q.strand) {
+    const strand = normalizeShsStrand(q.strand);
+    if (strand) { filters.push('s.strand = ?'); params.push(strand); }
+  }
   if (q.violation_type) { filters.push('(o.id = ? OR lower(o.name) = lower(?))'); params.push(Number(q.violation_type) || 0, clean(q.violation_type, 120)); }
   if (q.service_status) { filters.push('v.service_status = ?'); params.push(clean(q.service_status, 30)); }
   if (q.search) {
     const like = `%${clean(q.search, 120)}%`;
-    filters.push('(v.case_number LIKE ? OR st.student_number LIKE ? OR st.first_name LIKE ? OR st.last_name LIKE ? OR o.name LIKE ? OR v.description LIKE ?)');
-    params.push(like, like, like, like, like, like);
+    filters.push('(v.case_number LIKE ? OR st.student_number LIKE ? OR st.first_name LIKE ? OR st.last_name LIKE ? OR o.name LIKE ? OR v.description LIKE ? OR s.section_name LIKE ? OR s.strand LIKE ?)');
+    params.push(like, like, like, like, like, like, like, like);
   }
   const access = studentAccessClause(req, 'st');
-  let where = ' WHERE 1=1';
+  let where = ' WHERE st.grade_level IN (\'11\',\'12\')';
   if (filters.length) where += ' AND ' + filters.join(' AND ');
   if (access.sql) { where += access.sql; params.push(...access.params); }
   const base = `FROM violations v
@@ -277,8 +341,6 @@ function buildViolationsFilterQuery(req, { forExport = false } = {}) {
     JOIN offense_catalog o ON o.id=v.offense_id
     JOIN users rec ON rec.id=v.recorded_by
     LEFT JOIN users ver ON ver.id=v.verified_by
-    LEFT JOIN tracks tr ON tr.id=COALESCE(st.track_id, s.track_id)
-    LEFT JOIN strands sd ON sd.id=COALESCE(st.strand_id, s.strand_id)
     ${where}`;
   return { base, params, forExport };
 }
@@ -293,13 +355,12 @@ function queryRecentViolations(req) {
   const items = db.prepare(`
     SELECT v.*, st.student_number, st.first_name, st.last_name, st.grade_level,
            s.id section_id, s.section_name, s.school_year, y.label school_year_label,
-           COALESCE(st.track_id, s.track_id) track_id, COALESCE(st.strand_id, s.strand_id) strand_id,
-           tr.name track_name, sd.name strand_name,
+           s.strand strand_name,
            o.name offense, o.severity, rec.full_name recorded_by_name, ver.full_name verified_by_name
     ${base}
     ORDER BY v.created_at DESC, v.incident_date DESC, v.id DESC
     LIMIT ? OFFSET ?
-  `).all(...params, limit, offset);
+  `).all(...params, limit, offset).map(r => ({ ...r, track_id: null, strand_id: null, track_name: null }));
   return { items, page, limit, total };
 }
 
@@ -310,10 +371,11 @@ function buildCommunityServiceExportQuery(req) {
   const params = [];
   if (fromSql) { filters.push('v.created_at >= ?'); params.push(fromSql); }
   if (toSql) { filters.push('v.created_at <= ?'); params.push(toSql); }
-  if (q.grade_level) { filters.push('s.grade_level = ?'); params.push(clean(q.grade_level, 20)); }
+  const grade = normalizeGradeLevel(q.grade_level || q.grade);
+  if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
   if (q.section_id) { filters.push('st.section_id = ?'); params.push(Number(q.section_id)); }
-  if (q.track_id) { filters.push('COALESCE(st.track_id, s.track_id) = ?'); params.push(Number(q.track_id)); }
-  if (q.strand_id) { filters.push('COALESCE(st.strand_id, s.strand_id) = ?'); params.push(Number(q.strand_id)); }
+  const strand = normalizeShsStrand(q.strand);
+  if (strand) { filters.push('s.strand = ?'); params.push(strand); }
   if (q.service_status) { filters.push('v.service_status = ?'); params.push(clean(q.service_status, 30)); }
   if (q.search) {
     const like = `%${clean(q.search, 120)}%`;
@@ -321,19 +383,17 @@ function buildCommunityServiceExportQuery(req) {
     params.push(like, like, like, like);
   }
   const access = studentAccessClause(req, 'st');
-  let where = ' WHERE 1=1';
+  let where = ' WHERE st.grade_level IN (\'11\',\'12\')';
   if (filters.length) where += ' AND ' + filters.join(' AND ');
   if (access.sql) { where += access.sql; params.push(...access.params); }
   return {
     sql: `SELECT v.id violation_id, v.case_number, st.student_number, st.first_name, st.last_name,
-            st.grade_level, s.section_name, s.school_year, tr.name track_name, sd.name strand_name,
+            st.grade_level, s.section_name, s.school_year, s.strand strand_name,
             v.community_service_type, v.required_service_hours, v.completed_service_hours, v.service_status,
             v.guardian_name, v.guardian_contact, v.created_at
           FROM violations v
           JOIN students st ON st.id=v.student_id
           JOIN sections s ON s.id=st.section_id
-          LEFT JOIN tracks tr ON tr.id=COALESCE(st.track_id, s.track_id)
-          LEFT JOIN strands sd ON sd.id=COALESCE(st.strand_id, s.strand_id)
           ${where}
           ORDER BY v.created_at DESC, v.id DESC`,
     params
@@ -695,38 +755,63 @@ app.put('/api/teachers/:id/sections', auth, admin, (req, res) => {
   }
 });
 
-app.put('/api/years/:id', auth, admin, (req, res) => {
-  try {
-    db.prepare('UPDATE school_years SET label=?,starts_on=?,ends_on=? WHERE id=?')
-      .run(clean(req.body.label, 20), req.body.startsOn || null, req.body.endsOn || null, Number(req.params.id));
-    audit(req.session.user, 'Edit school year', 'school_year', Number(req.params.id));
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: 'School year invalid or duplicate.' });
-  }
-});
-
-app.delete('/api/students/:id', auth, admin, (req, res) => {
-  db.prepare('UPDATE students SET active=0 WHERE id=?').run(Number(req.params.id));
-  audit(req.session.user, 'Deactivate student record', 'student', Number(req.params.id));
-  res.json({ ok: true });
-});
-
 app.get('/api/years', auth, verified, (req, res) => {
   res.json(db.prepare('SELECT * FROM school_years ORDER BY label DESC').all());
 });
 
 app.post('/api/years', auth, admin, (req, res) => {
   try {
-    const label = clean(req.body.label, 20);
-    if (!label) return res.status(400).json({ error: 'School year required' });
-
-    const r = db.prepare('INSERT INTO school_years(label,starts_on,ends_on) VALUES(?,?,?)')
-      .run(label, req.body.startsOn || null, req.body.endsOn || null);
-    audit(req.session.user, 'Create school year', 'school_year', r.lastInsertRowid, label);
-    res.json({ id: r.lastInsertRowid });
+    const label = clean(req.body.label, 40);
+    if (!label) return res.status(400).json({ error: 'School year label is required.' });
+    const requestedActive = req.body.is_active;
+    const setActive = requestedActive === true || requestedActive === 1 || requestedActive === '1' || String(requestedActive).toLowerCase() === 'active';
+    const id = db.transaction(() => {
+      const r = db.prepare('INSERT INTO school_years(label,starts_on,ends_on,is_active) VALUES(?,?,?,0)')
+        .run(label, clean(req.body.startsOn || req.body.starts_on, 20) || null, clean(req.body.endsOn || req.body.ends_on, 20) || null);
+      const newId = Number(r.lastInsertRowid);
+      if (setActive) {
+        db.prepare('UPDATE school_years SET is_active=0').run();
+        db.prepare('UPDATE school_years SET is_active=1 WHERE id=?').run(newId);
+      }
+      return newId;
+    })();
+    audit(req.session.user, 'Create school year', 'school_year', id, `${label}${setActive ? ' (active)' : ''}`);
+    res.json({ id });
   } catch (e) {
-    res.status(400).json({ error: 'School year already exists or invalid.' });
+    res.status(400).json({ error: 'School year already exists or is invalid.' });
+  }
+});
+
+app.put('/api/years/:id', auth, admin, (req, res) => {
+  const id = Number(req.params.id);
+  const existing = db.prepare('SELECT * FROM school_years WHERE id=?').get(id);
+  if (!existing) return res.status(404).json({ error: 'School year not found.' });
+  try {
+    const label = req.body.label !== undefined ? clean(req.body.label, 40) : existing.label;
+    if (!label) return res.status(400).json({ error: 'School year label is required.' });
+    const startsOn = req.body.startsOn !== undefined || req.body.starts_on !== undefined ? (clean(req.body.startsOn || req.body.starts_on, 20) || null) : existing.starts_on;
+    const endsOn = req.body.endsOn !== undefined || req.body.ends_on !== undefined ? (clean(req.body.endsOn || req.body.ends_on, 20) || null) : existing.ends_on;
+    const hasStatus = Object.prototype.hasOwnProperty.call(req.body || {}, 'is_active') || Object.prototype.hasOwnProperty.call(req.body || {}, 'status');
+    let setActive = !!existing.is_active;
+    if (hasStatus) {
+      const raw = Object.prototype.hasOwnProperty.call(req.body || {}, 'is_active') ? req.body.is_active : req.body.status;
+      setActive = raw === true || raw === 1 || raw === '1' || String(raw).toLowerCase() === 'active';
+    }
+    db.transaction(() => {
+      db.prepare('UPDATE school_years SET label=?,starts_on=?,ends_on=? WHERE id=?').run(label, startsOn, endsOn, id);
+      if (hasStatus) {
+        if (setActive) {
+          db.prepare('UPDATE school_years SET is_active=0').run();
+          db.prepare('UPDATE school_years SET is_active=1 WHERE id=?').run(id);
+        } else {
+          db.prepare('UPDATE school_years SET is_active=0 WHERE id=?').run(id);
+        }
+      }
+    })();
+    audit(req.session.user, 'Update school year', 'school_year', id, `${label} (${setActive ? 'active' : 'inactive'})`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: 'Unable to update school year.' });
   }
 });
 
@@ -740,20 +825,34 @@ app.post('/api/years/:id/activate', auth, admin, (req, res) => {
   res.json({ ok: true });
 });
 
+app.post('/api/years/:id/deactivate', auth, admin, (req, res) => {
+  const id = Number(req.params.id);
+  db.prepare('UPDATE school_years SET is_active=0 WHERE id=?').run(id);
+  audit(req.session.user, 'Deactivate school year', 'school_year', id);
+  res.json({ ok: true });
+});
+
 app.get('/api/sections', auth, verified, (req, res) => {
-  const year = req.query.year;
+  const year = req.query.year || req.query.yearId;
   let q = `
     SELECT s.*, y.label school_year_label,
            COALESCE(NULLIF(s.school_year,''), y.label) school_year,
-           t.code track_code, t.name track_name,
-           st.code strand_code, st.name strand_name
+           s.strand strand_name
     FROM sections s
     JOIN school_years y ON y.id=s.school_year_id
-    LEFT JOIN tracks t ON t.id=s.track_id
-    LEFT JOIN strands st ON st.id=s.strand_id`;
-  if (year) q += ' WHERE s.school_year_id=?';
-  q += ' ORDER BY s.grade_level,s.section_name';
-  res.json(year ? db.prepare(q).all(Number(year)) : db.prepare(q).all());
+    WHERE s.grade_level IN ('11','12')`;
+  const params = [];
+  if (year) { q += ' AND s.school_year_id=?'; params.push(Number(year)); }
+  q += ' ORDER BY y.label DESC, s.grade_level, s.section_name';
+  const rows = db.prepare(q).all(...params).map(r => ({
+    ...r,
+    track_id: null,
+    strand_id: null,
+    track_code: null,
+    track_name: null,
+    strand_code: null
+  }));
+  res.json(rows);
 });
 
 app.post('/api/sections', auth, admin, (req, res) => {
@@ -761,21 +860,19 @@ app.post('/api/sections', auth, admin, (req, res) => {
     const yearId = Number(req.body.yearId || req.body.school_year_id);
     const year = db.prepare('SELECT label FROM school_years WHERE id=?').get(yearId);
     if (!year) return res.status(400).json({ error: 'Invalid school year.' });
-    const grade = clean(req.body.grade || req.body.grade_level, 20);
+    const grade = normalizeGradeLevel(req.body.grade || req.body.grade_level);
     const name = clean(req.body.name || req.body.section_name, 80);
-    if (!grade || !name) return res.status(400).json({ error: 'Grade level and section name are required.' });
-    const ts = validateTrackStrandForGrade(grade, req.body.track_id, req.body.strand_id);
-    if (ts.error) return res.status(400).json({ error: ts.error });
-    const strandText = clean(req.body.strand, 80);
+    if (!grade || !name) return res.status(400).json({ error: 'Grade 11/12 and section name are required.' });
+    const strand = normalizeShsStrand(req.body.strand || req.body.strand_group || req.body.strand_name);
     const schoolYearLabel = clean(req.body.school_year, 40) || year.label;
     const r = db.prepare(`
       INSERT INTO sections(school_year_id,grade_level,section_name,strand,track_id,strand_id,school_year)
-      VALUES (?,?,?,?,?,?,?)
-    `).run(yearId, grade, name, strandText, ts.track_id, ts.strand_id, schoolYearLabel);
-    audit(req.session.user, 'Create section', 'section', r.lastInsertRowid);
+      VALUES (?,?,?,?,NULL,NULL,?)
+    `).run(yearId, grade, name, strand, schoolYearLabel);
+    audit(req.session.user, 'Create section', 'section', r.lastInsertRowid, `G${grade} ${name}${strand ? ' - ' + strand : ''}`);
     res.json({ id: r.lastInsertRowid });
   } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Section already exists for this school year.' : 'Section invalid or already exists for this school year.' });
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Section already exists for this school year.' : 'Unable to create section. Use Grade 11 or Grade 12 only.' });
   }
 });
 
@@ -784,126 +881,62 @@ app.put('/api/sections/:id', auth, admin, (req, res) => {
     const id = Number(req.params.id);
     const existing = db.prepare('SELECT s.*, y.label year_label FROM sections s JOIN school_years y ON y.id=s.school_year_id WHERE s.id=?').get(id);
     if (!existing) return res.status(404).json({ error: 'Section not found.' });
-    const grade = clean(req.body.grade || req.body.grade_level || existing.grade_level, 20);
+    const grade = normalizeGradeLevel(req.body.grade !== undefined ? req.body.grade : (req.body.grade_level !== undefined ? req.body.grade_level : existing.grade_level));
     const name = clean(req.body.name || req.body.section_name || existing.section_name, 80);
-    const ts = validateTrackStrandForGrade(grade, req.body.track_id !== undefined ? req.body.track_id : existing.track_id, req.body.strand_id !== undefined ? req.body.strand_id : existing.strand_id);
-    if (ts.error) return res.status(400).json({ error: ts.error });
-    const strandText = req.body.strand !== undefined ? clean(req.body.strand, 80) : (existing.strand || '');
-    const schoolYearLabel = req.body.school_year !== undefined ? clean(req.body.school_year, 40) : (existing.school_year || existing.year_label || '');
-    db.prepare('UPDATE sections SET grade_level=?,section_name=?,strand=?,track_id=?,strand_id=?,school_year=? WHERE id=?')
-      .run(grade, name, strandText, ts.track_id, ts.strand_id, schoolYearLabel, id);
+    if (!grade || !name) return res.status(400).json({ error: 'Grade 11/12 and section name are required.' });
+    const strand = req.body.strand !== undefined || req.body.strand_group !== undefined || req.body.strand_name !== undefined
+      ? normalizeShsStrand(req.body.strand ?? req.body.strand_group ?? req.body.strand_name)
+      : normalizeShsStrand(existing.strand);
+    const schoolYearLabel = req.body.school_year !== undefined ? (clean(req.body.school_year, 40) || existing.school_year || existing.year_label || '') : (existing.school_year || existing.year_label || '');
+    db.prepare('UPDATE sections SET grade_level=?,section_name=?,strand=?,track_id=NULL,strand_id=NULL,school_year=? WHERE id=?')
+      .run(grade, name, strand, schoolYearLabel, id);
     audit(req.session.user, 'Edit section', 'section', id);
     res.json({ ok: true });
   } catch (e) {
-    res.status(400).json({ error: 'Section update failed.' });
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Section already exists for this school year.' : 'Section update failed.' });
   }
 });
 
 app.delete('/api/sections/:id', auth, admin, (req, res) => {
   try {
-    db.prepare('DELETE FROM sections WHERE id=?').run(Number(req.params.id));
-    audit(req.session.user, 'Delete section', 'section', Number(req.params.id));
+    const id = Number(req.params.id);
+    const used = db.prepare('SELECT 1 FROM students WHERE section_id=? AND active=1 LIMIT 1').get(id);
+    if (used) return res.status(409).json({ error: 'Cannot delete section with active student records.' });
+    db.prepare('DELETE FROM teacher_sections WHERE section_id=?').run(id);
+    db.prepare('DELETE FROM sections WHERE id=?').run(id);
+    audit(req.session.user, 'Delete section', 'section', id);
     res.json({ ok: true });
   } catch (e) {
-    res.status(400).json({ error: 'Section has linked records; cannot delete.' });
+    res.status(400).json({ error: 'Section has linked records and cannot be deleted.' });
   }
 });
 
 app.get('/api/students', auth, verified, (req, res) => {
-  const year = req.query.year;
+  const year = req.query.year || req.query.yearId;
   let q = `
     SELECT st.*, s.grade_level section_grade_level, s.section_name, s.strand section_strand_text, s.school_year_id,
            COALESCE(NULLIF(s.school_year,''), y.label) school_year,
-           COALESCE(st.track_id, s.track_id) track_id, COALESCE(st.strand_id, s.strand_id) strand_id,
-           t.name track_name, sd.name strand_name
+           s.strand strand_name
     FROM students st
     JOIN sections s ON s.id=st.section_id
     LEFT JOIN school_years y ON y.id=s.school_year_id
-    LEFT JOIN tracks t ON t.id=COALESCE(st.track_id, s.track_id)
-    LEFT JOIN strands sd ON sd.id=COALESCE(st.strand_id, s.strand_id)
-    WHERE st.active=1`;
+    WHERE st.active=1 AND st.grade_level IN ('11','12')
+  `;
   const p = [];
-
-  if (year) {
-    q += ' AND s.school_year_id=?';
-    p.push(Number(year));
-  }
-
+  if (year) { q += ' AND s.school_year_id=?'; p.push(Number(year)); }
   if (isSectionStaffRole(req.session.user.role)) {
-    q += ` AND st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)`;
+    q += ' AND st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
     p.push(req.session.user.id);
   }
-
   q += ' ORDER BY s.grade_level,s.section_name,st.last_name,st.first_name';
-  res.json(db.prepare(q).all(...p));
-});
-
-app.post('/api/students', auth, admin, (req, res) => {
-  try {
-    const number = clean(req.body.number || req.body.student_number, 40);
-    const first = clean(req.body.first || req.body.first_name, 80);
-    const last = clean(req.body.last || req.body.last_name, 80);
-    const sectionId = Number(req.body.sectionId || req.body.section_id);
-    const section = db.prepare('SELECT * FROM sections WHERE id=?').get(sectionId);
-    if (!number || !first || !last || !section) {
-      return res.status(400).json({ error: 'Student number, name, and valid section are required.' });
-    }
-    const grade = clean(req.body.grade || req.body.grade_level || section.grade_level, 20);
-    const ts = validateTrackStrandForGrade(grade, req.body.track_id ?? section.track_id, req.body.strand_id ?? section.strand_id);
-    if (ts.error) return res.status(400).json({ error: ts.error });
-    const guardianName = clean(req.body.guardian_name || req.body.guardianName, 150);
-    const guardianContact = clean(req.body.guardian_contact || req.body.guardianContact, 50);
-
-    const tx = db.transaction(() => {
-      const r = db.prepare(`
-        INSERT INTO students(student_number,first_name,last_name,grade_level,section_id,track_id,strand_id,guardian_name,guardian_contact)
-        VALUES (?,?,?,?,?,?,?,?,?)
-      `).run(number, first, last, grade, sectionId, ts.track_id, ts.strand_id, guardianName, guardianContact);
-      upsertStudentProfileFromStudent(Number(r.lastInsertRowid));
-      audit(req.session.user, 'Create student record', 'student', r.lastInsertRowid);
-      return r.lastInsertRowid;
-    });
-    res.json({ id: tx() });
-  } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Student number already exists.' : 'Student details invalid or student number already exists.' });
-  }
-});
-
-app.put('/api/students/:id', auth, admin, (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const existing = db.prepare('SELECT * FROM students WHERE id=?').get(id);
-    if (!existing) return res.status(404).json({ error: 'Student not found.' });
-    const sectionId = Number(req.body.sectionId || req.body.section_id || existing.section_id);
-    const section = db.prepare('SELECT * FROM sections WHERE id=?').get(sectionId);
-    if (!section) return res.status(400).json({ error: 'Invalid section.' });
-    const grade = clean(req.body.grade || req.body.grade_level || section.grade_level || existing.grade_level, 20);
-    const ts = validateTrackStrandForGrade(grade, req.body.track_id !== undefined ? req.body.track_id : (existing.track_id ?? section.track_id), req.body.strand_id !== undefined ? req.body.strand_id : (existing.strand_id ?? section.strand_id));
-    if (ts.error) return res.status(400).json({ error: ts.error });
-    const number = clean(req.body.number || req.body.student_number || existing.student_number, 40);
-    const first = clean(req.body.first || req.body.first_name || existing.first_name, 80);
-    const last = clean(req.body.last || req.body.last_name || existing.last_name, 80);
-    const guardianName = req.body.guardian_name !== undefined || req.body.guardianName !== undefined ? clean(req.body.guardian_name || req.body.guardianName, 150) : (existing.guardian_name || '');
-    const guardianContact = req.body.guardian_contact !== undefined || req.body.guardianContact !== undefined ? clean(req.body.guardian_contact || req.body.guardianContact, 50) : (existing.guardian_contact || '');
-
-    const tx = db.transaction(() => {
-      db.prepare(`
-        UPDATE students
-        SET student_number=?,first_name=?,last_name=?,grade_level=?,section_id=?,track_id=?,strand_id=?,guardian_name=?,guardian_contact=?
-        WHERE id=?
-      `).run(number, first, last, grade, sectionId, ts.track_id, ts.strand_id, guardianName, guardianContact, id);
-      if (Number(existing.section_id) !== Number(sectionId)) {
-        db.prepare('INSERT INTO section_assignments(student_id, old_section_id, new_section_id, changed_by, reason) VALUES (?,?,?,?,?)')
-          .run(id, existing.section_id, sectionId, req.session.user.id, 'Updated via student edit');
-      }
-      upsertStudentProfileFromStudent(id);
-    });
-    tx();
-    audit(req.session.user, 'Update student record', 'student', id);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Student number already exists.' : 'Unable to update student.' });
-  }
+  const rows = db.prepare(q).all(...p).map(r => ({
+    ...r,
+    track_id: null,
+    strand_id: null,
+    track_name: null,
+    strand_id_name: null
+  }));
+  res.json(rows);
 });
 
 app.get('/api/offenses', auth, verified, (req, res) => {
@@ -924,15 +957,15 @@ app.post('/api/offenses', auth, admin, (req, res) => {
 app.post('/api/violations', auth, admin, (req, res) => {
   try {
     const caseNumber = clean(req.body.caseNumber || req.body.case_number, 40);
-    const studentId = Number(req.body.studentId || req.body.student_id);
     const offenseId = Number(req.body.offenseId || req.body.offense_id);
     const incidentDate = parseDateInput(req.body.date || req.body.incident_date);
-    if (!caseNumber || !studentId || !offenseId || !incidentDate) {
-      return res.status(400).json({ error: 'caseNumber, studentId, offenseId, and incident date are required.' });
+    if (!caseNumber || !offenseId || !incidentDate) {
+      return res.status(400).json({ error: 'Case number, offense, and incident date are required.' });
     }
 
-    const student = db.prepare('SELECT id, guardian_name, guardian_contact FROM students WHERE id=?').get(studentId);
-    if (!student) return res.status(404).json({ error: 'Student not found.' });
+    const up = upsertStudentForViolation(req.body || {}, req.session.user);
+    if (up.error) return res.status(400).json({ error: up.error });
+    const student = up.student;
 
     const requiredHoursRaw = req.body.required_service_hours ?? req.body.requiredServiceHours ?? 0;
     const completedHoursRaw = req.body.completed_service_hours ?? req.body.completedServiceHours ?? 0;
@@ -944,7 +977,6 @@ app.post('/api/violations', auth, admin, (req, res) => {
     if (requiredHours < 0 || completedHours < 0) {
       return res.status(400).json({ error: 'Service hours cannot be negative.' });
     }
-    // Allow over-cap rendered/completed hours while marking completed when requirement is met.
     const serviceStatus = requiredHours <= 0 ? 'none' : (completedHours >= requiredHours ? 'completed' : (completedHours > 0 ? 'in_progress' : 'pending'));
 
     const guardianName = clean(req.body.guardian_name ?? req.body.guardianName ?? student.guardian_name ?? '', 150);
@@ -959,7 +991,7 @@ app.post('/api/violations', auth, admin, (req, res) => {
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       caseNumber,
-      studentId,
+      student.id,
       offenseId,
       incidentDate,
       clean(req.body.time || req.body.incident_time, 10) || null,
@@ -974,10 +1006,10 @@ app.post('/api/violations', auth, admin, (req, res) => {
       guardianContact,
       req.session.user.id
     );
-    audit(req.session.user, 'Record violation', 'violation', r.lastInsertRowid);
-    res.json({ id: r.lastInsertRowid, service_status: serviceStatus });
+    audit(req.session.user, 'Record violation', 'violation', r.lastInsertRowid, up.created ? `new student ${student.student_number}` : `student ${student.student_number}`);
+    res.json({ id: r.lastInsertRowid, service_status: serviceStatus, student_id: student.id, student_created: !!up.created });
   } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Case number must be unique.' : 'Violation record invalid.' });
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Case number must be unique.' : 'Violation record invalid. Check student, offense, and date details.' });
   }
 });
 
@@ -986,13 +1018,13 @@ app.get('/api/violations', auth, verified, (req, res) => {
     const { base, params } = buildViolationsFilterQuery(req);
     const rows = db.prepare(`
       SELECT v.*, st.student_number, st.first_name, st.last_name, st.grade_level,
-             s.section_name, s.school_year, o.name offense, o.severity,
-             rec.full_name recorded_by_name, ver.full_name verified_by_name,
-             tr.name track_name, sd.name strand_name
+             s.section_name, s.school_year, s.strand strand_name,
+             o.name offense, o.severity,
+             rec.full_name recorded_by_name, ver.full_name verified_by_name
       ${base}
       ORDER BY v.incident_date DESC, v.id DESC
       LIMIT 500
-    `).all(...params);
+    `).all(...params).map(r => ({ ...r, track_id: null, strand_id: null, track_name: null }));
     res.json(rows);
   } catch (e) {
     res.status(400).json({ error: 'Unable to load violations.' });
@@ -1139,90 +1171,16 @@ app.post('/api/staff/users', auth, admin, async (req, res) => {
   }
 });
 
-// --- Academic track/strand config ---
+// --- Academic config (simplified, fixed Grade 11-12 strand groups; no dynamic track/strand creation) ---
 app.get('/api/academic/track-strand-config', auth, verified, (req, res) => {
-  const all = req.query.all === '1' && req.session.user?.role === 'admin';
-  const tracks = db.prepare(`SELECT id,code,name,is_active,created_at FROM tracks ${all ? '' : 'WHERE is_active=1'} ORDER BY name,code`).all();
-  const strands = db.prepare(`SELECT s.id,s.track_id,s.code,s.name,s.is_active,s.created_at,t.name track_name,t.code track_code FROM strands s LEFT JOIN tracks t ON t.id=s.track_id ${all ? '' : 'WHERE s.is_active=1'} ORDER BY s.name,s.code`).all();
-  const enabled = tracks.some(t => t.is_active) || strands.some(s => s.is_active);
+  const strands = SHS_STRAND_GROUPS.map((name, i) => ({ id: i + 1, code: name, name, is_active: 1, track_id: null, track_name: null, track_code: null }));
   res.json({
-    tracks,
+    tracks: [],
     strands,
-    grades: {
-      '11': { enabled },
-      '12': { enabled }
-    },
-    enabled
+    grades: { '11': { enabled: true }, '12': { enabled: true } },
+    enabled: true,
+    fixed: true
   });
-});
-
-app.post('/api/academic/tracks', auth, admin, (req, res) => {
-  try {
-    const code = clean(req.body.code, 40);
-    const name = clean(req.body.name, 120);
-    if (!code || !name) return res.status(400).json({ error: 'Track code and name are required.' });
-    const r = db.prepare('INSERT INTO tracks(code,name,is_active) VALUES(?,?,?)')
-      .run(code, name, req.body.is_active === 0 || req.body.is_active === false ? 0 : 1);
-    audit(req.session.user, 'Create track', 'track', r.lastInsertRowid, code);
-    res.json({ id: r.lastInsertRowid });
-  } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Track code already exists.' : 'Unable to create track.' });
-  }
-});
-
-app.patch('/api/academic/tracks/:id', auth, admin, (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const existing = db.prepare('SELECT * FROM tracks WHERE id=?').get(id);
-    if (!existing) return res.status(404).json({ error: 'Track not found.' });
-    const code = req.body.code !== undefined ? clean(req.body.code, 40) : existing.code;
-    const name = req.body.name !== undefined ? clean(req.body.name, 120) : existing.name;
-    const isActive = req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : existing.is_active;
-    db.prepare('UPDATE tracks SET code=?, name=?, is_active=? WHERE id=?').run(code, name, isActive, id);
-    audit(req.session.user, 'Update track', 'track', id);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Track code already exists.' : 'Unable to update track.' });
-  }
-});
-
-app.post('/api/academic/strands', auth, admin, (req, res) => {
-  try {
-    const code = clean(req.body.code, 40);
-    const name = clean(req.body.name, 120);
-    const trackId = req.body.track_id ? Number(req.body.track_id) : null;
-    if (!code || !name) return res.status(400).json({ error: 'Strand code and name are required.' });
-    if (trackId && !db.prepare('SELECT 1 FROM tracks WHERE id=?').get(trackId)) {
-      return res.status(400).json({ error: 'Invalid track_id.' });
-    }
-    const r = db.prepare('INSERT INTO strands(track_id,code,name,is_active) VALUES(?,?,?,?)')
-      .run(trackId, code, name, req.body.is_active === 0 || req.body.is_active === false ? 0 : 1);
-    audit(req.session.user, 'Create strand', 'strand', r.lastInsertRowid, code);
-    res.json({ id: r.lastInsertRowid });
-  } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Strand code already exists.' : 'Unable to create strand.' });
-  }
-});
-
-app.patch('/api/academic/strands/:id', auth, admin, (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const existing = db.prepare('SELECT * FROM strands WHERE id=?').get(id);
-    if (!existing) return res.status(404).json({ error: 'Strand not found.' });
-    const trackId = req.body.track_id === null ? null : (req.body.track_id !== undefined ? Number(req.body.track_id) : existing.track_id);
-    if (trackId && !db.prepare('SELECT 1 FROM tracks WHERE id=?').get(trackId)) {
-      return res.status(400).json({ error: 'Invalid track_id.' });
-    }
-    const code = req.body.code !== undefined ? clean(req.body.code, 40) : existing.code;
-    const name = req.body.name !== undefined ? clean(req.body.name, 120) : existing.name;
-    const isActive = req.body.is_active !== undefined ? (req.body.is_active ? 1 : 0) : existing.is_active;
-    db.prepare('UPDATE strands SET track_id=?, code=?, name=?, is_active=? WHERE id=?')
-      .run(trackId, code, name, isActive, id);
-    audit(req.session.user, 'Update strand', 'strand', id);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Strand code already exists.' : 'Unable to update strand.' });
-  }
 });
 
 // --- Dashboard recent violations with filters ---
@@ -1244,13 +1202,14 @@ app.get('/api/community-service/calendar', auth, verified, (req, res) => {
     const end = `${month}-31 23:59:59.999`;
     const filters = [];
     const params = [start, end];
-    if (req.query.grade_level) { filters.push('s.grade_level = ?'); params.push(clean(req.query.grade_level, 20)); }
+    const grade = normalizeGradeLevel(req.query.grade_level || req.query.grade);
+    if (grade) { filters.push('s.grade_level = ?'); params.push(grade); }
     if (req.query.section_id) { filters.push('st.section_id = ?'); params.push(Number(req.query.section_id)); }
-    if (req.query.track_id) { filters.push('COALESCE(st.track_id, s.track_id) = ?'); params.push(Number(req.query.track_id)); }
-    if (req.query.strand_id) { filters.push('COALESCE(st.strand_id, s.strand_id) = ?'); params.push(Number(req.query.strand_id)); }
+    const strand = normalizeShsStrand(req.query.strand);
+    if (strand) { filters.push('s.strand = ?'); params.push(strand); }
     if (req.query.service_status) { filters.push('v.service_status = ?'); params.push(clean(req.query.service_status, 30)); }
     const access = studentAccessClause(req, 'st');
-    let where = ' WHERE l.service_date >= ? AND l.service_date <= ?';
+    let where = ' WHERE l.service_date >= ? AND l.service_date <= ? AND st.grade_level IN (\'11\',\'12\')';
     if (filters.length) where += ' AND ' + filters.join(' AND ');
     if (access.sql) { where += access.sql; params.push(...access.params); }
     const rows = db.prepare(`
@@ -1374,100 +1333,7 @@ app.patch('/api/community-service/logs/:id', auth, verified, (req, res) => {
   }
 });
 
-// --- Student section reassignment ---
-function validateSectionCompatibility(section, studentGrade, trackId, strandId) {
-  if (!section) return 'Target section not found.';
-  if (studentGrade && String(section.grade_level) !== String(studentGrade)) {
-    return 'Target section grade level does not match the student grade level.';
-  }
-  // If the target section is explicitly assigned to a track/strand, the student's effective track/strand must match.
-  if (section.track_id && trackId && Number(section.track_id) !== Number(trackId)) {
-    return 'Target section track does not match student track.';
-  }
-  if (section.strand_id && strandId && Number(section.strand_id) !== Number(strandId)) {
-    return 'Target section strand does not match student strand.';
-  }
-  return null;
-}
-
-app.patch('/api/students/:id/section', auth, admin, (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const student = db.prepare('SELECT * FROM students WHERE id=?').get(id);
-    if (!student) return res.status(404).json({ error: 'Student not found.' });
-    const newSectionId = Number(req.body.section_id || req.body.new_section_id);
-    const section = db.prepare('SELECT * FROM sections WHERE id=?').get(newSectionId);
-    if (!section) return res.status(404).json({ error: 'Target section not found.' });
-
-    const grade = req.body.grade_level ? clean(req.body.grade_level, 20) : (section.grade_level || student.grade_level);
-    const effectiveTrackId = req.body.track_id !== undefined ? req.body.track_id : (section.track_id ?? null);
-    const effectiveStrandId = req.body.strand_id !== undefined ? req.body.strand_id : (section.strand_id ?? null);
-    const ts = validateTrackStrandForGrade(grade, effectiveTrackId, effectiveStrandId);
-    if (ts.error) return res.status(400).json({ error: ts.error });
-    const compat = validateSectionCompatibility(section, grade, ts.track_id, ts.strand_id);
-    if (compat) return res.status(400).json({ error: compat });
-    const reason = clean(req.body.reason, 300);
-
-    const tx = db.transaction(() => {
-      db.prepare('UPDATE students SET section_id=?, grade_level=?, track_id=?, strand_id=? WHERE id=?')
-        .run(newSectionId, grade, ts.track_id, ts.strand_id, id);
-      db.prepare('INSERT INTO section_assignments(student_id, old_section_id, new_section_id, changed_by, reason) VALUES (?,?,?,?,?)')
-        .run(id, student.section_id, newSectionId, req.session.user.id, reason);
-      db.prepare(`
-        INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact)
-        VALUES (?,?,?,?,?,?,?,?)
-        ON CONFLICT(student_no) DO UPDATE SET
-          grade_level=excluded.grade_level, section_id=excluded.section_id, track_id=excluded.track_id, strand_id=excluded.strand_id
-      `).run(student.user_id || null, student.student_number || null, grade, newSectionId, ts.track_id, ts.strand_id, student.guardian_name || '', student.guardian_contact || '');
-      audit(req.session.user, 'Reassign student section', 'student', id, `from ${student.section_id} to ${newSectionId}`);
-      return db.prepare('SELECT * FROM students WHERE id=?').get(id);
-    });
-    res.json({ ok: true, student: tx() });
-  } catch (e) {
-    res.status(400).json({ error: 'Unable to reassign student section.' });
-  }
-});
-
-app.post('/api/students/bulk-reassign', auth, admin, (req, res) => {
-  try {
-    const studentIds = Array.isArray(req.body.student_ids) ? req.body.student_ids.map(Number).filter(Boolean) : [];
-    const newSectionId = Number(req.body.section_id || req.body.new_section_id);
-    if (!studentIds.length || !newSectionId) return res.status(400).json({ error: 'student_ids and section_id are required.' });
-    const section = db.prepare('SELECT * FROM sections WHERE id=?').get(newSectionId);
-    if (!section) return res.status(404).json({ error: 'Target section not found.' });
-    const grade = req.body.grade_level ? clean(req.body.grade_level, 20) : (section.grade_level || null);
-    const reason = clean(req.body.reason, 300);
-    const results = [];
-    const tx = db.transaction(() => {
-      for (const sid of studentIds) {
-        const student = db.prepare('SELECT * FROM students WHERE id=?').get(sid);
-        if (!student) { results.push({ id: sid, ok: false, error: 'Student not found.' }); continue; }
-        const effectiveGrade = grade || section.grade_level || student.grade_level;
-        const effectiveTrackId = req.body.track_id !== undefined ? req.body.track_id : (section.track_id ?? null);
-        const effectiveStrandId = req.body.strand_id !== undefined ? req.body.strand_id : (section.strand_id ?? null);
-        const ts = validateTrackStrandForGrade(effectiveGrade, effectiveTrackId, effectiveStrandId);
-        if (ts.error) { results.push({ id: sid, ok: false, error: ts.error }); continue; }
-        const compat = validateSectionCompatibility(section, effectiveGrade, ts.track_id, ts.strand_id);
-        if (compat) { results.push({ id: sid, ok: false, error: compat }); continue; }
-        db.prepare('UPDATE students SET section_id=?, grade_level=?, track_id=?, strand_id=? WHERE id=?')
-          .run(newSectionId, effectiveGrade, ts.track_id, ts.strand_id, sid);
-        db.prepare('INSERT INTO section_assignments(student_id, old_section_id, new_section_id, changed_by, reason) VALUES (?,?,?,?,?)')
-          .run(sid, student.section_id, newSectionId, req.session.user.id, reason);
-        db.prepare(`
-          INSERT INTO student_profiles(user_id, student_no, grade_level, section_id, track_id, strand_id, guardian_name, guardian_contact)
-          VALUES (?,?,?,?,?,?,?,?)
-          ON CONFLICT(student_no) DO UPDATE SET grade_level=excluded.grade_level, section_id=excluded.section_id, track_id=excluded.track_id, strand_id=excluded.strand_id
-        `).run(student.user_id || null, student.student_number || null, grade, newSectionId, ts.track_id, ts.strand_id, student.guardian_name || '', student.guardian_contact || '');
-        results.push({ id: sid, ok: true });
-      }
-    });
-    tx();
-    audit(req.session.user, 'Bulk reassign students', 'student', null, `${results.filter(r => r.ok).length}/${results.length} moved to section ${newSectionId}`);
-    res.json({ ok: true, results });
-  } catch (e) {
-    res.status(400).json({ error: 'Unable to bulk reassign students.' });
-  }
-});
+// Student section reassignment and separate student management removed in simplified system. Student details are captured in violation records.
 
 // --- Exports (xlsx) ---
 app.get('/api/exports/violations.xlsx', auth, verified, (req, res) => {
@@ -1475,7 +1341,7 @@ app.get('/api/exports/violations.xlsx', auth, verified, (req, res) => {
     const { base, params } = buildViolationsFilterQuery(req);
     const rows = db.prepare(`
       SELECT v.case_number, st.student_number, st.first_name, st.last_name, st.grade_level,
-             s.section_name, s.school_year, tr.name track_name, sd.name strand_name,
+             s.section_name, s.school_year, s.strand strand_name,
              o.name offense, o.severity, v.incident_date, v.status, v.service_status,
              v.community_service_type, v.required_service_hours, v.completed_service_hours,
              (CASE WHEN COALESCE(v.required_service_hours,0) > COALESCE(v.completed_service_hours,0)
@@ -1485,8 +1351,8 @@ app.get('/api/exports/violations.xlsx', auth, verified, (req, res) => {
       ${base}
       ORDER BY v.created_at DESC, v.id DESC
     `).all(...params);
-    const headers = ['Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Track','Strand','Offense','Severity','Incident Date','Status','Service Status','Community Service Type','Required Service Hours','Completed Service Hours','Remaining Service Hours','Guardian Name','Guardian Contact','Created At'];
-    const data = rows.map(r => [r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.offense,r.severity,r.incident_date,r.status,r.service_status,r.community_service_type||'',r.required_service_hours,r.completed_service_hours,r.remaining_service_hours,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
+    const headers = ['Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Strand/Group','Offense','Severity','Incident Date','Status','Service Status','Community Service Type','Required Service Hours','Completed Service Hours','Remaining Service Hours','Guardian Name','Guardian Contact','Created At'];
+    const data = rows.map(r => [r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.strand_name||'',r.offense,r.severity,r.incident_date,r.status,r.service_status,r.community_service_type||'',r.required_service_hours,r.completed_service_hours,r.remaining_service_hours,r.guardian_name||'',r.guardian_contact||'',r.created_at]);
     sendXlsx(res, 'violations.xlsx', headers, data);
   } catch (e) {
     res.status(500).json({ error: 'Unable to export violations.' });
@@ -1497,12 +1363,12 @@ app.get('/api/exports/community-service.xlsx', auth, verified, (req, res) => {
   try {
     const { sql, params } = buildCommunityServiceExportQuery(req);
     const rows = db.prepare(sql).all(...params);
-    const headers = ['Violation ID','Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Track','Strand','Service Type','Required Hours','Completed Hours','Remaining Hours','Service Status','Guardian Name','Guardian Contact','Created At'];
+    const headers = ['Violation ID','Case Number','Student Number','First Name','Last Name','Grade Level','Section','School Year','Strand/Group','Service Type','Required Hours','Completed Hours','Remaining Hours','Service Status','Guardian Name','Guardian Contact','Created At'];
     const data = rows.map(r => {
       const required = Number(r.required_service_hours || 0);
       const completed = Number(r.completed_service_hours || 0);
       const remaining = required > completed ? Math.round((required - completed) * 100) / 100 : 0;
-      return [r.violation_id,r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.track_name||'',r.strand_name||'',r.community_service_type||'',r.required_service_hours,r.completed_service_hours,remaining,r.service_status,r.guardian_name||'',r.guardian_contact||'',r.created_at];
+      return [r.violation_id,r.case_number,r.student_number,r.first_name,r.last_name,r.grade_level,r.section_name,r.school_year||'',r.strand_name||'',r.community_service_type||'',r.required_service_hours,r.completed_service_hours,remaining,r.service_status,r.guardian_name||'',r.guardian_contact||'',r.created_at];
     });
     sendXlsx(res, 'community-service.xlsx', headers, data);
   } catch (e) {
