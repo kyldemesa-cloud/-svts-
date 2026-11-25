@@ -7,6 +7,7 @@ const { Readable } = require('node:stream');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const fails = new Map();
 
 app.set('trust proxy', 1);
 
