@@ -1783,6 +1783,59 @@ app.get('/api/exports/active-service.xlsx', auth, verified, (req, res) => {
   }
 });
 
+app.get('/api/exports/offenses.xlsx', auth, verified, (req, res) => {
+  try {
+    const isAdmin = req.session.user && req.session.user.role === 'admin';
+    const rows = db.prepare(
+      isAdmin
+        ? 'SELECT id,name,severity,description,active FROM offense_catalog ORDER BY severity,name'
+        : 'SELECT id,name,severity,description,active FROM offense_catalog WHERE active=1 ORDER BY severity,name'
+    ).all();
+    const headers = ['ID', 'Offense', 'Severity', 'Description', 'Active'];
+    const data = rows.map(r => [r.id, r.name || '', r.severity || '', r.description || '', r.active ? 'Yes' : 'No']);
+    sendXlsx(res, 'offenses.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export offenses.' });
+  }
+});
+
+app.get('/api/exports/accounts.xlsx', auth, admin, (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT u.id, u.full_name, u.email, u.role, u.status, u.created_at,
+             GROUP_CONCAT(s.section_name, ', ') AS assigned_sections
+      FROM users u
+      LEFT JOIN teacher_sections ts ON ts.teacher_id=u.id
+      LEFT JOIN sections s ON s.id=ts.section_id
+      GROUP BY u.id
+      ORDER BY u.role, u.full_name
+    `).all();
+    const headers = ['ID', 'Full Name', 'Email', 'Role', 'Status', 'Assigned Sections', 'Created At'];
+    const data = rows.map(r => [r.id, r.full_name || '', r.email || '', r.role || '', r.status || '', r.assigned_sections || '', r.created_at || '']);
+    sendXlsx(res, 'accounts.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export accounts.' });
+  }
+});
+
+app.get('/api/exports/reports.xlsx', auth, admin, (req, res) => {
+  try {
+    let q = 'SELECT o.name offense,o.severity,s.grade_level,s.section_name,COUNT(*) total FROM violations v JOIN students st ON st.id=v.student_id JOIN sections s ON s.id=st.section_id JOIN offense_catalog o ON o.id=v.offense_id';
+    const p = [];
+    if (isSectionStaffRole(req.session.user.role)) {
+      q += ' WHERE st.section_id IN (SELECT section_id FROM teacher_sections WHERE teacher_id=?)';
+      p.push(req.session.user.id);
+    }
+    q += ' GROUP BY o.id,s.id ORDER BY total DESC';
+    const rows = db.prepare(q).all(...p);
+    const headers = ['Offense', 'Severity', 'Grade Level', 'Section', 'Total Violations'];
+    const data = rows.map(r => [r.offense || '', r.severity || '', r.grade_level || '', r.section_name || '', Number(r.total || 0)]);
+    sendXlsx(res, 'reports.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export reports.' });
+  }
+});
+
 app.get('/api/reports', auth, admin, (req, res) => {
   let q = 'SELECT o.name offense,o.severity,s.grade_level,s.section_name,COUNT(*) total FROM violations v JOIN students st ON st.id=v.student_id JOIN sections s ON s.id=st.section_id JOIN offense_catalog o ON o.id=v.offense_id';
   const p = [];

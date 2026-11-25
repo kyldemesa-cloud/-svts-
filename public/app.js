@@ -307,7 +307,8 @@ function render() {
 }
 
 function pageHead(title, extra = '') {
-  return `<div class="page-head"><h2 class="section-title" style="margin:0">${esc(title)}</h2><div class="actions">${extra}</div></div>`;
+  const printBtn = `<button class="ghost smallbtn" type="button" onclick="window.print()">Print</button>`;
+  return `<div class="page-head"><h2 class="section-title" style="margin:0">${esc(title)}</h2><div class="actions">${extra}${printBtn}</div></div>`;
 }
 function table(headers, rows) {
   return `<div class="table-wrap"><table><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}" class="muted">No data available.</td></tr>`}</tbody></table></div>`;
@@ -455,7 +456,7 @@ function renderDashboard() {
       <p class="eyebrow">SAN JOSE LITEX SENIOR HIGH SCHOOL</p>
       <h2 class="section-title" style="margin:0;font-size:30px;color:var(--navy)">Welcome, ${esc(me.full_name)}</h2>
       <p class="muted" style="margin-top:4px">${isAdmin ? 'Grade 11-12 dashboard with LRN search, automatic case numbers, and admin-defined track/strand sections.' : 'Grade 11-12 dashboard for your assigned section records and LRN lookup.'} Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}.</p>
-    </div><div style="min-width:260px"><label>View school year<select id="dashboardYearSelect">${yearOptionsHtml(false)}</select></label></div></div>`;
+    </div><div style="min-width:280px;display:grid;gap:8px"><label>View school year<select id="dashboardYearSelect">${yearOptionsHtml(false)}</select></label><div class="actions"><a class="ghost smallbtn" href="/api/exports/violations.xlsx?${violationsExportQs.toString()}" target="_blank" rel="noopener">Export Excel</a><button class="ghost smallbtn" type="button" onclick="window.print()">Print</button></div></div></div>`;
 
   html += `<div class="cards dashboard-kpi-cards">${[
     { key: 'sections', label: 'Grade 11-12 sections', value: sectionsCount, sub: 'Configured sections · Click to view/export', exportHref: `/api/exports/sections.xlsx${yearQs}` },
@@ -571,8 +572,9 @@ function renderSections() {
     <td class="actions">${me.role === 'admin' ? `<button class="ghost smallbtn" data-edit-section="${s.id}" type="button">Edit</button><button class="ghost smallbtn" data-delete-section="${s.id}" type="button">Delete</button>` : '—'}</td>
   </tr>`).join('');
 
+  const sectionsYearQs = selectedSchoolYearId ? ('?school_year_id=' + encodeURIComponent(selectedSchoolYearId)) : '';
   $('#content').innerHTML =
-    pageHead('Sections & school years', me.role === 'admin' ? '<div class="actions"><button class="primary" data-modal="year" type="button">+ Add school year</button><button class="primary" data-modal="section" type="button">+ Add sections (track & strand)</button></div>' : '') +
+    pageHead('Sections & school years', `<div class="actions"><a class="ghost smallbtn" href="/api/exports/sections.xlsx${sectionsYearQs}" target="_blank" rel="noopener">Export Excel</a>${me.role === 'admin' ? '<button class="primary" data-modal="year" type="button">+ Add school year</button><button class="primary" data-modal="section" type="button">+ Add sections (track & strand)</button>' : ''}</div>`) +
     `<div style="height:15px"></div><div class="two-col"><div>${pageHead('School years', '')}${table(['School year','Status','Archived','Action'], yearRows)}<p class="tiny muted">Admins can set each school year as active or inactive using the status dropdown.</p></div><div>${pageHead('Grade 11-12 sections', '')}${table(['Grade','Section','Track','Strand/Group','School year','Actions'], secRows)}</div></div>` +
     `<div style="height:12px"></div><div class="card colorful-card"><h3 style="margin-top:0">Admin-defined track & strand</h3><p class="tiny muted">Only Grade 11 and Grade 12 are supported. Use one action to select a grade level, enter the track and strand/group, and add one or many section names for the same school year. Student LRN/details are captured when recording violations.</p></div>`;
 
@@ -614,7 +616,7 @@ function renderCommunity() {
   </tr>`).join('');
 
   $('#content').innerHTML = `
-    ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button></div>`)}
+    ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button><button class="ghost smallbtn" id="exportCommunityXlsx" type="button">Export Excel</button></div>`)}
     <div class="card" style="margin-bottom:12px"><div class="row" style="align-items:end"><div style="min-width:260px"><label>School year archive<select id="communityYearSelect">${yearOptionsHtml(false)}</select></label></div><div class="tiny muted">Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}. Calendar and service records are scoped to this year.</div></div></div>
     ${renderFilterForm('calf', { label: 'Calendar filters' })}
     <div style="height:12px"></div>
@@ -656,6 +658,7 @@ function renderCommunity() {
   wireFilterForm('calf', async () => { await loadCalendar(); renderCommunity(); });
   $('#calPrev') && ($('#calPrev').onclick = async () => { const d = new Date(calendarState.month + '-01T00:00:00'); d.setMonth(d.getMonth() - 1); calendarState.month = d.toISOString().slice(0,7); calendarState.selectedDate=''; await loadCalendar(); renderCommunity(); });
   $('#calNext') && ($('#calNext').onclick = async () => { const d = new Date(calendarState.month + '-01T00:00:00'); d.setMonth(d.getMonth() + 1); calendarState.month = d.toISOString().slice(0,7); calendarState.selectedDate=''; await loadCalendar(); renderCommunity(); });
+  $('#exportCommunityXlsx') && ($('#exportCommunityXlsx').onclick = () => { const qs = filterParams(); if (selectedSchoolYearId) qs.set('school_year_id', selectedSchoolYearId); window.location.href = '/api/exports/community-service.xlsx?' + qs.toString(); });
   $$('[data-cal-date]').forEach(btn => btn.onclick = async () => { await loadCalendarDay(btn.dataset.calDate); renderCommunity(); });
   $$('[data-svc-status]').forEach(btn => btn.onclick = async () => {
     try { await patch('/api/community-service/' + btn.dataset.svcStatus, { status: btn.dataset.status }); toast('Service updated.'); await loadData(); await loadCalendar(); renderCommunity(); } catch (e) { toast(e.message); }
@@ -701,11 +704,11 @@ function renderAccounts() {
     </tr>`;
   }).join('');
   $('#content').innerHTML =
-    pageHead('Accounts & approvals', '') +
+    pageHead('Accounts & approvals', `<a class="ghost smallbtn" href="/api/exports/accounts.xlsx" target="_blank" rel="noopener">Export Excel</a>`) +
     `<div class="card colorful-card"><h3 style="margin-top:0">Pending staff requests</h3>${table(['Name','Email','Role','Assigned section','Requested','Actions'], pendingRows || `<tr><td colspan="6" class="muted">No pending requests.</td></tr>`)}</div>` +
     `<div style="height:12px"></div><div class="card"><h3 style="margin-top:0">User accounts</h3><p class="tiny muted" style="margin-top:0">Admins can suspend or reactivate accounts. Permanent deletion requires two confirmations and may be blocked if the account is linked to required records.</p>${table(['Name','Email','Role','Status','Created','Actions'], userRows)}</div>`;
-  $$('[data-approve]').forEach(b => b.onclick = async () => { try { await post('/api/admin/pending/' + b.dataset.approve + '/approve', {}); toast('Approved.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); } });
-  $$('[data-reject]').forEach(b => b.onclick = async () => { try { await post('/api/admin/pending/' + b.dataset.reject + '/reject', {}); toast('Rejected.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); } });
+  $$('[data-approve]').forEach(b => b.onclick = async () => { try { await post('/api/admin/approve/' + b.dataset.approve, {}); toast('Approved.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); } });
+  $$('[data-reject]').forEach(b => b.onclick = async () => { try { await post('/api/admin/reject/' + b.dataset.reject, {}); toast('Rejected.'); await loadData(); renderAccounts(); } catch (e) { toast(e.message); } });
   $$('[data-user-status]').forEach(b => b.onclick = async () => {
     const id = Number(b.dataset.userStatus);
     const status = b.dataset.status;
@@ -738,7 +741,7 @@ function renderOffenses() {
     </tr>`;
   }).join('');
   $('#content').innerHTML =
-    pageHead('Offense catalog', isAdmin ? '<button class="primary" data-modal="offense" type="button">+ Add offense</button>' : '') +
+    pageHead('Offense catalog', `<div class="actions"><a class="ghost smallbtn" href="/api/exports/offenses.xlsx" target="_blank" rel="noopener">Export Excel</a>${isAdmin ? '<button class="primary" data-modal="offense" type="button">+ Add offense</button>' : ''}</div>`) +
     `<div class="card colorful-card"><p class="tiny muted" style="margin-top:0">Manage violation offenses used when recording cases. Admins can add, edit, activate, or deactivate offenses.</p>` +
     `${table(['Offense', 'Severity', 'Status', isAdmin ? 'Actions' : 'Info'], rows || `<tr><td colspan="${isAdmin ? 4 : 3}" class="muted">No offenses found.</td></tr>`)} </div>`;
 }
@@ -747,9 +750,10 @@ function renderReports() {
   const byGrade = GRADE_OPTIONS.map(g => ({ grade: g, count: cases.filter(c => String(c.grade_level) === g).length }));
   const byStatus = ['Reported','Under Review','Resolved','Closed'].map(s => ({ status: s, count: cases.filter(c => (c.status||'') === s).length }));
   const topOffenses = Object.entries(cases.reduce((m,c)=>{ const k=c.offense||'Unknown'; m[k]=(m[k]||0)+1; return m; }, {})).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  $('#content').innerHTML = pageHead('Reports', `<div class="actions"><button class="ghost" id="exportViolationsXlsx2">Export Violations XLSX</button><button class="ghost" id="exportServiceXlsx2">Export Service XLSX</button></div>`) +
+  $('#content').innerHTML = pageHead('Reports', `<div class="actions"><button class="ghost" id="exportReportsXlsx">Export Reports Excel</button><button class="ghost" id="exportViolationsXlsx2">Export Violations XLSX</button><button class="ghost" id="exportServiceXlsx2">Export Service XLSX</button></div>`) +
     `<div class="cards">${byGrade.map(g => `<div class="card kpi accent-kpi"><div class="label">Grade ${g.grade} cases</div><strong>${g.count}</strong><div class="sub">Current filtered view</div></div>`).join('')}${byStatus.slice(0,2).map(s => `<div class="card kpi accent-kpi"><div class="label">${esc(s.status)}</div><strong>${s.count}</strong><div class="sub">Current filtered view</div></div>`).join('')}</div>` +
     `<div style="height:12px"></div><div class="two-col"><div class="card"><h3 style="margin-top:0">Top offenses</h3>${table(['Offense','Count'], topOffenses.map(([n,c]) => `<tr><td>${esc(n)}</td><td>${c}</td></tr>`).join(''))}</div><div class="card"><h3 style="margin-top:0">Service summary</h3>${table(['Metric','Value'], `<tr><td>Total service records</td><td>${service.length}</td></tr><tr><td>Completed</td><td>${service.filter(s=>/complete/i.test(s.status||'')).length}</td></tr><tr><td>In progress/pending</td><td>${service.filter(s=>!/complete/i.test(s.status||'')).length}</td></tr>`)}</div></div>`;
+  $('#exportReportsXlsx') && ($('#exportReportsXlsx').onclick = () => { window.location.href = '/api/exports/reports.xlsx'; });
   $('#exportViolationsXlsx2') && ($('#exportViolationsXlsx2').onclick = () => { window.location.href = '/api/exports/violations.xlsx?' + filterParams().toString(); });
   $('#exportServiceXlsx2') && ($('#exportServiceXlsx2').onclick = () => { window.location.href = '/api/exports/community-service.xlsx?' + filterParams().toString(); });
 }

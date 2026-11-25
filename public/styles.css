@@ -219,3 +219,17 @@ tbody tr:last-child td { border-bottom: 0; }
   .calendar-day { min-height: 72px; }
   .pie-wrap { grid-template-columns: 1fr; }
 }
+
+@media print {
+  body { background: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .topbar, .nav-wrap, .auth-modal-backdrop, .toast, .landing-shell, .filter-actions, .filter-dropdown-summary::after, .kpi-actions, .no-print { display: none !important; }
+  button, .iconbtn, [data-modal], [data-view]:not(.print-keep) { display: none !important; }
+  .actions a, a.kpi-export-link, a[data-export-link] { display: none !important; }
+  .app-shell, .content, .card, .table-wrap { box-shadow: none !important; }
+  .content { padding: 0 !important; max-width: 100% !important; }
+  .card { break-inside: avoid; border: 1px solid #cbd5e1 !important; }
+  .table-wrap { overflow: visible !important; }
+  table { width: 100% !important; font-size: 12px; }
+  .filter-dropdown { border: 0 !important; }
+  .filter-dropdown[open] .filter-panel, .filter-dropdown .filter-panel { display: none !important; }
+}
