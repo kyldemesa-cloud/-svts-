@@ -91,6 +91,12 @@ function ensureMigrations() {
   ensureColumn('violations', 'guardian_name', "TEXT DEFAULT ''");
   ensureColumn('violations', 'guardian_contact', "TEXT DEFAULT ''");
 
+  // attendance confirmation
+  ensureColumn('service_attendance', 'confirmed_by', 'INTEGER REFERENCES users(id)');
+  ensureColumn('service_attendance', 'confirmed_at', 'TEXT');
+  ensureColumn('community_service_logs', 'confirmed_by', 'INTEGER REFERENCES users(id)');
+  ensureColumn('community_service_logs', 'confirmed_at', 'TEXT');
+
   // backfill school_year label on sections for existing rows
   try {
     db.exec(`

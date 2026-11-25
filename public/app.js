@@ -597,6 +597,53 @@ function renderSections() {
 }
 
 
+function openServiceLogModal(serviceId = '') {
+  const options = service.map(s => {
+    const selected = String(s.id) === String(serviceId) ? 'selected' : '';
+    const label = `${s.case_number || 'No case'} · ${(s.first_name || '') + ' ' + (s.last_name || '')} · LRN ${lrnOf(s)} · G${s.grade_level || ''} ${s.section_name || ''}`;
+    return `<option value="${s.id}" data-student-id="${esc(s.student_id || '')}" data-violation-id="${esc(s.violation_id || '')}" ${selected}>${esc(label)}</option>`;
+  }).join('');
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultDate = calendarState.selectedDate || today;
+  modal(`
+    <div class="modal-head"><h3>Log service hours</h3><button class="iconbtn modal-close" type="button">×</button></div>
+    <form id="serviceLogForm" class="modal-grid">
+      <label class="full">Service record<select id="serviceLogService" required><option value="">Select service record</option>${options}</select></label>
+      <label>Service date<input id="serviceLogDate" type="date" required value="${esc(defaultDate)}"></label>
+      <label>Hours rendered<input id="serviceLogHours" type="number" min="0" step="0.25" required value="1"></label>
+      <label class="full">Remarks<textarea id="serviceLogRemarks" rows="3" placeholder="Optional remarks"></textarea></label>
+      <div class="full actions"><button class="primary" type="submit">Save service hours</button><button class="ghost modal-cancel" type="button">Cancel</button></div>
+    </form>
+    <p class="tiny muted" style="margin-top:8px">Logged hours are saved to community service logs and update the calendar/day details.</p>
+  `);
+  $('#serviceLogForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const sel = $('#serviceLogService');
+    const opt = sel?.selectedOptions?.[0];
+    const studentId = Number(opt?.dataset?.studentId || 0);
+    const violationId = Number(opt?.dataset?.violationId || 0);
+    const serviceDate = ($('#serviceLogDate')?.value || '').trim();
+    const hoursRendered = Number($('#serviceLogHours')?.value || 0);
+    const remarks = ($('#serviceLogRemarks')?.value || '').trim();
+    if (!studentId || !serviceDate || !Number.isFinite(hoursRendered)) { toast('Service record, date, and hours are required.'); return; }
+    try {
+      await post('/api/community-service/logs', {
+        student_id: studentId,
+        violation_id: violationId || null,
+        service_date: serviceDate,
+        hours_rendered: hoursRendered,
+        remarks
+      });
+      toast('Service hours logged.');
+      closeModal();
+      await loadData();
+      if (calendarState.selectedDate) await loadCalendarDay(calendarState.selectedDate);
+      await loadCalendar();
+      renderCommunity();
+    } catch (err) { toast(err.message || 'Unable to log service hours.'); }
+  };
+}
+
 function renderCommunity() {
   const selYear = selectedSchoolYear();
   const now = new Date(calendarState.month + '-01T00:00:00');
@@ -606,17 +653,27 @@ function renderCommunity() {
     const cls = ['calendar-day', d.count ? 'has-service' : '', calendarState.selectedDate === d.date ? 'selected' : ''].filter(Boolean).join(' ');
     return `<button type="button" class="${cls}" data-cal-date="${esc(d.date)}" aria-label="View services on ${esc(d.date)}"><span class="day">${esc(d.label)}</span><span class="count">${d.count ? (d.count + ' item' + (d.count === 1 ? '' : 's')) : '—'}</span></button>`;
   }).join('');
-  const selectedRows = (calendarState.selectedItems || []).map(s => `<tr>
-    <td>${esc(s.case_number || '—')}</td>
-    <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(s))}</div></td>
-    <td>G${esc(s.grade_level || '')} · ${esc(s.section_name || '')}<div class="tiny muted">${esc(trackStrandText(s) || '—')}</div></td>
-    <td>${esc(s.offense || '')}<div class="tiny muted">${esc(s.service_type || s.community_service_type || '')}</div></td>
-    <td>${fmtDate(s.due_date)}</td>
-    <td>${badge(s.status || '')}</td>
-  </tr>`).join('');
+  const selectedRows = (calendarState.selectedItems || []).map(s => {
+    const confirmed = !!(s.confirmed_by_name || s.confirmed_at);
+    const confirmCell = confirmed
+      ? `<span class="badge verified">Confirmed</span><div class="tiny muted">${esc(s.confirmed_by_name || '')}</div>`
+      : (me.role === 'admin'
+        ? `<button class="ghost smallbtn" data-confirm-attendance="${esc(s.id)}" data-confirm-source="${esc(s.source_type || 'log')}">Confirm</button>`
+        : `<span class="badge pending">Pending confirmation</span>`);
+    return `<tr>
+      <td>${esc(s.case_number || '—')}</td>
+      <td>${esc((s.first_name || '') + ' ' + (s.last_name || ''))}<div class="tiny muted">LRN: ${esc(lrnOf(s))}</div></td>
+      <td>G${esc(s.grade_level || '')} · ${esc(s.section_name || '')}<div class="tiny muted">${esc(trackStrandText(s) || '—')}</div></td>
+      <td>${esc(s.offense || '')}<div class="tiny muted">${esc(s.service_type || s.community_service_type || '')}</div></td>
+      <td>${hoursNum(s.hours_rendered).toFixed(2)}</td>
+      <td>${fmtDate(s.service_date || s.due_date)}</td>
+      <td>${badge(s.status || '')}</td>
+      <td>${confirmCell}</td>
+    </tr>`;
+  }).join('');
 
   $('#content').innerHTML = `
-    ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button><button class="ghost smallbtn" id="exportCommunityXlsx" type="button">Export Excel</button></div>`)}
+    ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button>${me.role === 'admin' ? '<button class="primary smallbtn" id="logServiceHoursBtn" type="button">Log service hours</button>' : ''}<button class="ghost smallbtn" id="exportCommunityXlsx" type="button">Export Excel</button></div>`)}
     <div class="card" style="margin-bottom:12px"><div class="row" style="align-items:end"><div style="min-width:260px"><label>School year archive<select id="communityYearSelect">${yearOptionsHtml(false)}</select></label></div><div class="tiny muted">Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}. Calendar and service records are scoped to this year.</div></div></div>
     ${renderFilterForm('calf', { label: 'Calendar filters' })}
     <div style="height:12px"></div>
@@ -629,7 +686,7 @@ function renderCommunity() {
       <div class="card colorful-card calendar-details">
         <h3 style="margin-top:0">Day details</h3>
         <p class="muted tiny">${calendarState.selectedDate ? `Items for ${esc(fmtDate(calendarState.selectedDate))}` : 'Select a calendar day to see items.'}</p>
-        ${table(['Case','Student','Grade/Section/Track-Strand','Offense / Service','Due date','Status'], selectedRows || `<tr><td colspan="6" class="muted">${calendarState.selectedDate ? 'No service items for this day.' : 'No day selected.'}</td></tr>`)}
+        ${table(['Case','Student','Grade/Section/Track-Strand','Offense / Service','Hours Rendered','Service/Due Date','Status','Attendance'], selectedRows || `<tr><td colspan="8" class="muted">${calendarState.selectedDate ? 'No service items for this day.' : 'No day selected.'}</td></tr>`)}
       </div>
     </div>
     <div style="height:12px"></div>
@@ -646,7 +703,7 @@ function renderCommunity() {
           <td>${rem.toFixed(2)}</td>
           <td>${fmtDate(s.due_date)}</td>
           <td>${badge(s.status || '')}</td>
-          <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="in_progress">Mark in progress</button><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="completed">Complete</button></div>` : '—'}</td>
+          <td>${me.role === 'admin' ? `<div class="actions"><button class="ghost smallbtn" data-log-service="${s.id}">Log hours</button><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="in_progress">Mark in progress</button><button class="ghost smallbtn" data-svc-status="${s.id}" data-status="completed">Complete</button></div>` : '—'}</td>
         </tr>`;
       }).join('') || '<tr><td colspan="9" class="muted">No service records for this school year.</td></tr>')}
     </div>`;
@@ -662,6 +719,23 @@ function renderCommunity() {
   $$('[data-cal-date]').forEach(btn => btn.onclick = async () => { await loadCalendarDay(btn.dataset.calDate); renderCommunity(); });
   $$('[data-svc-status]').forEach(btn => btn.onclick = async () => {
     try { await patch('/api/community-service/' + btn.dataset.svcStatus, { status: btn.dataset.status }); toast('Service updated.'); await loadData(); await loadCalendar(); renderCommunity(); } catch (e) { toast(e.message); }
+  });
+  $('#logServiceHoursBtn') && ($('#logServiceHoursBtn').onclick = () => openServiceLogModal());
+  $$('[data-log-service]').forEach(btn => btn.onclick = () => openServiceLogModal(btn.dataset.logService));
+  $$('[data-confirm-attendance]').forEach(btn => btn.onclick = async () => {
+    const id = Number(btn.dataset.confirmAttendance || 0);
+    const source = btn.dataset.confirmSource || 'log';
+    const url = source === 'attendance'
+      ? `/api/community-service/attendance/${id}/confirm`
+      : `/api/community-service/logs/${id}/confirm`;
+    try {
+      await post(url, {});
+      toast('Attendance confirmed.');
+      if (calendarState.selectedDate) await loadCalendarDay(calendarState.selectedDate);
+      await loadCalendar();
+      await loadData();
+      renderCommunity();
+    } catch (e) { toast(e.message || 'Unable to confirm attendance.'); }
   });
 }
 

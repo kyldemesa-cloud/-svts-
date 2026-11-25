@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS service_attendance (
  id INTEGER PRIMARY KEY AUTOINCREMENT, service_id INTEGER NOT NULL REFERENCES community_service(id) ON DELETE CASCADE,
  service_date TEXT NOT NULL, hours_served REAL NOT NULL DEFAULT 0, day_completed INTEGER NOT NULL DEFAULT 0,
  notes TEXT DEFAULT '', recorded_by INTEGER NOT NULL REFERENCES users(id),
+ confirmed_by INTEGER REFERENCES users(id), confirmed_at TEXT,
  UNIQUE(service_id, service_date)
 );
 CREATE TABLE IF NOT EXISTS community_service_logs (
@@ -120,6 +121,8 @@ CREATE TABLE IF NOT EXISTS community_service_logs (
  hours_rendered REAL NOT NULL DEFAULT 0.00,
  remarks TEXT DEFAULT '',
  verified_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ confirmed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+ confirmed_at TEXT,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_community_service_logs_date ON community_service_logs(service_date);

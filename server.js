@@ -1384,9 +1384,18 @@ app.get('/api/community-service/:id/attendance', auth, verified, (req, res) => {
   }
 
   res.json(
-    db.prepare('SELECT a.*,u.full_name recorded_by_name FROM service_attendance a JOIN users u ON u.id=a.recorded_by WHERE service_id=? ORDER BY service_date DESC')
+    db.prepare('SELECT a.*,u.full_name recorded_by_name,cu.full_name confirmed_by_name FROM service_attendance a JOIN users u ON u.id=a.recorded_by LEFT JOIN users cu ON cu.id=a.confirmed_by WHERE service_id=? ORDER BY service_date DESC')
       .all(Number(req.params.id))
   );
+});
+
+app.post('/api/community-service/attendance/:id/confirm', auth, admin, (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare('SELECT a.id, cs.student_id FROM service_attendance a JOIN community_service cs ON cs.id=a.service_id WHERE a.id=?').get(id);
+  if (!row) return res.status(404).json({ error: 'Attendance record not found.' });
+  db.prepare('UPDATE service_attendance SET confirmed_by=?, confirmed_at=CURRENT_TIMESTAMP WHERE id=?').run(req.session.user.id, id);
+  audit(req.session.user, 'Confirm service attendance', 'service_attendance', id);
+  res.json({ ok: true });
 });
 
 // --- Staff accounts (admin/teacher/guidance counselor/class adviser) ---
@@ -1481,19 +1490,55 @@ app.get('/api/community-service/calendar', auth, verified, (req, res) => {
     let where = ' WHERE l.service_date >= ? AND l.service_date <= ? AND st.grade_level IN (\'11\',\'12\')';
     if (filters.length) where += ' AND ' + filters.join(' AND ');
     if (access.sql) { where += access.sql; params.push(...access.params); }
+    const attFilters = [];
+    const attParams = [start, end];
+    const attGrade = normalizeGradeLevel(req.query.grade_level || req.query.grade);
+    if (attGrade) { attFilters.push('s.grade_level = ?'); attParams.push(attGrade); }
+    if (req.query.section_id) { attFilters.push('st.section_id = ?'); attParams.push(Number(req.query.section_id)); }
+    if (schoolYearId) { attFilters.push('cs.school_year_id = ?'); attParams.push(schoolYearId); }
+    const attStrand = normalizeStrand(req.query.strand);
+    if (attStrand) { attFilters.push('(s.strand = ? OR st.track = ? OR s.track = ?)'); attParams.push(attStrand, attStrand, attStrand); }
+    const attTrack = normalizeTrack(req.query.track);
+    if (attTrack) { attFilters.push('(s.track = ? OR st.track = ?)'); attParams.push(attTrack, attTrack); }
+    if (req.query.service_status) { attFilters.push('cs.status = ?'); attParams.push(clean(req.query.service_status, 30)); }
+    const attAccess = studentAccessClause(req, 'st');
+    let attWhere = " WHERE a.service_date >= ? AND a.service_date <= ? AND st.grade_level IN ('11','12')";
+    if (attFilters.length) attWhere += ' AND ' + attFilters.join(' AND ');
+    if (attAccess.sql) { attWhere += attAccess.sql; attParams.push(...attAccess.params); }
+
     const rows = db.prepare(`
-      SELECT substr(l.service_date,1,10) service_date,
-             COALESCE(SUM(l.hours_rendered),0) total_hours,
-             COUNT(DISTINCT l.student_id) student_count,
-             COUNT(*) log_count
-      FROM community_service_logs l
-      JOIN students st ON st.id=l.student_id
-      JOIN sections s ON s.id=st.section_id
-      LEFT JOIN violations v ON v.id=l.violation_id
-      ${where}
-      GROUP BY substr(l.service_date,1,10)
+      SELECT service_date, SUM(total_hours) total_hours, SUM(student_count) student_count, SUM(log_count) log_count
+      FROM (
+        SELECT substr(a.service_date,1,10) service_date,
+               COALESCE(SUM(a.hours_served),0) total_hours,
+               COUNT(DISTINCT cs.student_id) student_count,
+               COUNT(*) log_count
+        FROM service_attendance a
+        JOIN community_service cs ON cs.id=a.service_id
+        JOIN students st ON st.id=cs.student_id
+        JOIN sections s ON s.id=st.section_id
+        ${attWhere}
+        GROUP BY substr(a.service_date,1,10)
+        UNION ALL
+        SELECT substr(l.service_date,1,10) service_date,
+               COALESCE(SUM(l.hours_rendered),0) total_hours,
+               COUNT(DISTINCT l.student_id) student_count,
+               COUNT(*) log_count
+        FROM community_service_logs l
+        JOIN students st ON st.id=l.student_id
+        JOIN sections s ON s.id=st.section_id
+        LEFT JOIN violations v ON v.id=l.violation_id
+        ${where}
+          AND NOT EXISTS (
+            SELECT 1 FROM service_attendance a2
+            JOIN community_service cs2 ON cs2.id=a2.service_id
+            WHERE cs2.violation_id = l.violation_id AND substr(a2.service_date,1,10)=substr(l.service_date,1,10)
+          )
+        GROUP BY substr(l.service_date,1,10)
+      )
+      GROUP BY service_date
       ORDER BY service_date
-    `).all(...params);
+    `).all(...attParams, ...params);
     res.json({ month, days: rows });
   } catch (e) {
     res.status(400).json({ error: 'Unable to load calendar.' });
@@ -1504,32 +1549,73 @@ app.get('/api/community-service/calendar/:date', auth, verified, (req, res) => {
   try {
     const date = parseDateInput(req.params.date);
     if (!date) return res.status(400).json({ error: 'Invalid date.' });
-    const filters = [];
-    const params = [date];
-    if (req.query.grade_level) { filters.push('s.grade_level = ?'); params.push(clean(req.query.grade_level, 20)); }
-    if (req.query.section_id) { filters.push('st.section_id = ?'); params.push(Number(req.query.section_id)); }
     const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
-    if (schoolYearId) { filters.push('s.school_year_id = ?'); params.push(schoolYearId); }
     const access = studentAccessClause(req, 'st');
-    let where = ' WHERE substr(l.service_date,1,10)=?';
-    if (filters.length) where += ' AND ' + filters.join(' AND ');
-    if (access.sql) { where += access.sql; params.push(...access.params); }
+
+    const attFilters = [];
+    const attParams = [date];
+    if (req.query.grade_level) { attFilters.push('s.grade_level = ?'); attParams.push(clean(req.query.grade_level, 20)); }
+    if (req.query.section_id) { attFilters.push('st.section_id = ?'); attParams.push(Number(req.query.section_id)); }
+    if (schoolYearId) { attFilters.push('cs.school_year_id = ?'); attParams.push(schoolYearId); }
+    let attWhere = ' WHERE substr(a.service_date,1,10)=?';
+    if (attFilters.length) attWhere += ' AND ' + attFilters.join(' AND ');
+    if (access.sql) { attWhere += access.sql; attParams.push(...access.params); }
+
+    const logFilters = [];
+    const logParams = [date];
+    if (req.query.grade_level) { logFilters.push('s.grade_level = ?'); logParams.push(clean(req.query.grade_level, 20)); }
+    if (req.query.section_id) { logFilters.push('st.section_id = ?'); logParams.push(Number(req.query.section_id)); }
+    if (schoolYearId) { logFilters.push('s.school_year_id = ?'); logParams.push(schoolYearId); }
+    let logWhere = ' WHERE substr(l.service_date,1,10)=?';
+    if (logFilters.length) logWhere += ' AND ' + logFilters.join(' AND ');
+    if (access.sql) { logWhere += access.sql; logParams.push(...access.params); }
+
     const rows = db.prepare(`
-      SELECT l.*, st.student_number, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level,
-             st.track AS track_name, s.section_name, s.track AS section_track, s.strand AS strand_name,
-             v.case_number, v.required_service_hours, v.completed_service_hours, v.service_status,
-             o.name AS offense, v.incident_date,
-             (CASE WHEN v.required_service_hours IS NULL THEN NULL ELSE MAX(v.required_service_hours - v.completed_service_hours, 0) END) AS remaining_hours,
-             u.full_name AS verified_by_name
-      FROM community_service_logs l
-      JOIN students st ON st.id=l.student_id
-      JOIN sections s ON s.id=st.section_id
-      LEFT JOIN violations v ON v.id=l.violation_id
-      LEFT JOIN offenses o ON o.id=v.offense_id
-      LEFT JOIN users u ON u.id=l.verified_by
-      ${where}
-      ORDER BY st.last_name, st.first_name, l.id
-    `).all(...params);
+      SELECT * FROM (
+        SELECT a.id, cs.violation_id, cs.student_id, substr(a.service_date,1,10) service_date, a.hours_served AS hours_rendered,
+               COALESCE(NULLIF(a.notes,''), '') remarks, a.recorded_by, a.confirmed_by, a.confirmed_at,
+               st.student_number, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level,
+               COALESCE(NULLIF(s.track,''), NULLIF(st.track,''), '') AS track_name, s.section_name, s.track AS section_track, COALESCE(NULLIF(s.strand,''), '') AS strand_name,
+               v.case_number, v.required_service_hours, v.completed_service_hours, v.service_status,
+               o.name AS offense, v.incident_date, COALESCE(NULLIF(v.community_service_type,''), '') service_type,
+               (CASE WHEN v.required_service_hours IS NULL THEN NULL ELSE MAX(v.required_service_hours - v.completed_service_hours, 0) END) AS remaining_hours,
+               u.full_name AS verified_by_name, cu.full_name AS confirmed_by_name, 'attendance' AS source_type
+        FROM service_attendance a
+        JOIN community_service cs ON cs.id=a.service_id
+        JOIN students st ON st.id=cs.student_id
+        JOIN sections s ON s.id=st.section_id
+        LEFT JOIN violations v ON v.id=cs.violation_id
+        LEFT JOIN offense_catalog o ON o.id=v.offense_id
+        LEFT JOIN users u ON u.id=a.recorded_by
+        LEFT JOIN users cu ON cu.id=a.confirmed_by
+        ${attWhere}
+        GROUP BY a.id
+        UNION ALL
+        SELECT l.id, l.violation_id, l.student_id, substr(l.service_date,1,10) service_date, l.hours_rendered,
+               l.remarks, l.verified_by AS recorded_by, l.confirmed_by, l.confirmed_at,
+               st.student_number, st.student_number AS lrn, st.first_name, st.last_name, st.grade_level,
+               COALESCE(NULLIF(s.track,''), NULLIF(st.track,''), '') AS track_name, s.section_name, s.track AS section_track, COALESCE(NULLIF(s.strand,''), '') AS strand_name,
+               v.case_number, v.required_service_hours, v.completed_service_hours, v.service_status,
+               o.name AS offense, v.incident_date, COALESCE(NULLIF(v.community_service_type,''), '') service_type,
+               (CASE WHEN v.required_service_hours IS NULL THEN NULL ELSE MAX(v.required_service_hours - v.completed_service_hours, 0) END) AS remaining_hours,
+               u.full_name AS verified_by_name, cu.full_name AS confirmed_by_name, 'log' AS source_type
+        FROM community_service_logs l
+        JOIN students st ON st.id=l.student_id
+        JOIN sections s ON s.id=st.section_id
+        LEFT JOIN violations v ON v.id=l.violation_id
+        LEFT JOIN offense_catalog o ON o.id=v.offense_id
+        LEFT JOIN users u ON u.id=l.verified_by
+        LEFT JOIN users cu ON cu.id=l.confirmed_by
+        ${logWhere}
+          AND NOT EXISTS (
+            SELECT 1 FROM service_attendance a2
+            JOIN community_service cs2 ON cs2.id=a2.service_id
+            WHERE cs2.violation_id = l.violation_id AND substr(a2.service_date,1,10)=substr(l.service_date,1,10)
+          )
+        GROUP BY l.id
+      )
+      ORDER BY last_name, first_name, id
+    `).all(...attParams, ...logParams);
     res.json({ date, items: rows });
   } catch (e) {
     res.status(400).json({ error: 'Unable to load calendar day.' });
@@ -1568,6 +1654,22 @@ app.post('/api/community-service/logs', auth, verified, (req, res) => {
         db.prepare('UPDATE violations SET completed_service_hours=?, service_status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
           .run(sum, service_status, violationId);
         violation = db.prepare('SELECT id, required_service_hours, completed_service_hours, service_status FROM violations WHERE id=?').get(violationId);
+
+        const svc = db.prepare('SELECT id, hours_required, service_days_required, status FROM community_service WHERE violation_id=? ORDER BY id DESC LIMIT 1').get(violationId);
+        if (svc) {
+          const dayTotal = db.prepare('SELECT COALESCE(SUM(hours_rendered),0) total FROM community_service_logs WHERE violation_id=? AND substr(service_date,1,10)=?').get(violationId, String(serviceDate).slice(0,10)).total || 0;
+          const existingAtt = db.prepare('SELECT id FROM service_attendance WHERE service_id=? AND service_date=?').get(svc.id, String(serviceDate).slice(0,10));
+          if (existingAtt) {
+            db.prepare('UPDATE service_attendance SET hours_served=?, day_completed=CASE WHEN ? > 0 THEN 1 ELSE 0 END, notes=?, recorded_by=? WHERE id=?')
+              .run(dayTotal, dayTotal, remarks, req.session.user.id, existingAtt.id);
+          } else {
+            db.prepare('INSERT INTO service_attendance(service_id,service_date,hours_served,day_completed,notes,recorded_by) VALUES(?,?,?,?,?,?)')
+              .run(svc.id, String(serviceDate).slice(0,10), dayTotal, dayTotal > 0 ? 1 : 0, remarks, req.session.user.id);
+          }
+          const totals = db.prepare('SELECT SUM(hours_served) h,SUM(day_completed) d FROM service_attendance WHERE service_id=?').get(svc.id);
+          const complete = (Number(totals.h || 0) >= Number(svc.hours_required || 0)) && (Number(svc.service_days_required || 0) <= 0 || Number(totals.d || 0) >= Number(svc.service_days_required || 0));
+          db.prepare("UPDATE community_service SET status=? WHERE id=?").run(complete ? 'Completed' : 'In Progress', svc.id);
+        }
       }
       audit(req.session.user, 'Log community service', 'community_service_log', r.lastInsertRowid, `${hours} hours on ${serviceDate}`);
       return { id: r.lastInsertRowid, violation };
@@ -1605,6 +1707,15 @@ app.patch('/api/community-service/logs/:id', auth, verified, (req, res) => {
   } catch (e) {
     res.status(400).json({ error: 'Unable to update service log.' });
   }
+});
+
+app.post('/api/community-service/logs/:id/confirm', auth, admin, (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare('SELECT id FROM community_service_logs WHERE id=?').get(id);
+  if (!row) return res.status(404).json({ error: 'Log not found.' });
+  db.prepare('UPDATE community_service_logs SET confirmed_by=?, confirmed_at=CURRENT_TIMESTAMP WHERE id=?').run(req.session.user.id, id);
+  audit(req.session.user, 'Confirm service log attendance', 'community_service_log', id);
+  res.json({ ok: true });
 });
 
 // Student section reassignment and separate student management removed in simplified system. Student details are captured in violation records.
