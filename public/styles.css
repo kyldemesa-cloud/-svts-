@@ -48,6 +48,9 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .brand-logo-sm { width: 40px; height: 40px; }
 .brand-logo-lg { width: 58px; height: 58px; }
 .auth-modal-brand { display: flex; align-items: center; gap: 12px; margin: 4px 0 8px; padding-right: 34px; }
+.auth-role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.auth-role-card { border: 1px solid #dbe5f0; border-radius: 14px; padding: 12px; background: #f8fbff; }
+@media (max-width: 720px) { .auth-role-grid { grid-template-columns: 1fr; } }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; box-shadow: var(--shadow); }
 .colorful-card { background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%); border-color: #d7e3f5; }
 .accent-card { border-top: 4px solid var(--blue); }

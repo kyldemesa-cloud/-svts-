@@ -620,6 +620,15 @@ async function loadSignupOptions() {
   try { signupOptionsCache = await get('/api/public/signup-options'); } catch { signupOptionsCache = { sections: [], school_years: [], tracks: [], strands: [] }; }
   return signupOptionsCache;
 }
+function fillAuthSectionSelect() {
+  const sel = $('#authSectionSelect');
+  if (!sel) return;
+  const opts = (signupOptionsCache?.sections || []).map(s => {
+    const label = sectionLabel(s) || `G${s.grade_level || ''} ${s.section_name || ''}`.trim();
+    return `<option value="${s.id}">${esc(label)}</option>`;
+  }).join('');
+  sel.innerHTML = `<option value="">Select section (adviser request)</option>${opts}`;
+}
 
 function openModal(kind, id) {
   if (kind === 'recordCase') {
@@ -794,19 +803,34 @@ function wireGlobal() {
     }
   });
 
-  $('#loginForm') && ($('#loginForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    try { const r = await post('/api/auth/login', { email: fd.get('email'), password: fd.get('password') }); me = r.user; toast('Signed in.'); await doAuthAction(); }
-    catch (err) { toast(err.message); }
-  });
-  $('#staffRequestForm') && ($('#staffRequestForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target).entries());
-    try { await post('/api/auth/register', { full_name: data.full_name, email: data.email, password: data.password, role: data.role, grade_level: data.grade_level, section_id: data.section_id ? Number(data.section_id) : null, school_year_id: data.school_year_id ? Number(data.school_year_id) : null }); toast('Staff account request submitted for admin approval.'); e.target.reset(); }
-    catch (err) { toast(err.message); }
-  });
-  $$('.open-auth').forEach(b => b.onclick = () => { $('#authModal')?.classList.remove('hidden'); $('#authModal')?.setAttribute('aria-hidden','false'); });
+  function authCreds() {
+    const form = $('#authCredForm');
+    const fd = form ? new FormData(form) : null;
+    return {
+      full_name: String(fd?.get('full_name') || '').trim(),
+      email: String(fd?.get('email') || '').trim(),
+      password: String(fd?.get('password') || ''),
+      section_id: fd?.get('section_id') ? Number(fd.get('section_id')) : null
+    };
+  }
+  async function doLoginFromAuth() {
+    const c = authCreds();
+    if (!c.email || !c.password) { toast('Email and password are required.'); return; }
+    const r = await post('/api/auth/login', { email: c.email, password: c.password });
+    me = r.user; toast('Signed in.'); await doAuthAction();
+  }
+  async function doRequestFromAuth(role) {
+    const c = authCreds();
+    if (!c.full_name) { toast('Full name is required for account requests.'); return; }
+    if (!c.email || !c.password) { toast('Email and password are required.'); return; }
+    if (role === 'class_adviser' && !c.section_id) { toast('Select the adviser section for an adviser account request.'); return; }
+    const payload = { name: c.full_name, email: c.email, password: c.password, role, section_id: role === 'class_adviser' ? c.section_id : null };
+    await post('/api/auth/register-admin', payload);
+    toast('Account request submitted for admin approval.');
+  }
+  $$('[data-auth-login]').forEach(btn => btn.onclick = async () => { try { await doLoginFromAuth(); } catch (err) { toast(err.message); } });
+  $$('[data-auth-request]').forEach(btn => btn.onclick = async () => { try { await doRequestFromAuth(btn.dataset.authRequest); } catch (err) { toast(err.message); } });
+  $$('.open-auth').forEach(b => b.onclick = async () => { await loadSignupOptions().catch(()=>{}); fillAuthSectionSelect(); $('#authModal')?.classList.remove('hidden'); $('#authModal')?.setAttribute('aria-hidden','false'); });
   $('#authModalClose') && ($('#authModalClose').onclick = closeAuthModal);
   $('#authModal')?.addEventListener('click', (e) => { if (e.target.id === 'authModal') closeAuthModal(); });
 }
@@ -815,6 +839,7 @@ async function boot() {
   wireGlobal();
   try {
     await loadSignupOptions();
+    fillAuthSectionSelect();
     const setup = await get('/api/auth/setup-status').catch(() => ({ configured: false }));
     if (setup?.admin?.email && $('#loginEmailHint')) $('#loginEmailHint').textContent = `Ready admin account: ${setup.admin.email}`;
   } catch {}
