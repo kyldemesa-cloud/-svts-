@@ -607,34 +607,110 @@ app.get('/api/me', auth, (req, res) => {
 });
 
 app.get('/api/dashboard', auth, verified, (req, res) => {
-  const isAdmin = req.session.user.role === 'admin';
-  const isStaffScoped = isSectionStaffRole(req.session.user.role);
-  const sectionIds = isAdmin
-    ? null
-    : (isStaffScoped
-      ? db.prepare('SELECT section_id FROM teacher_sections WHERE teacher_id=?').all(req.session.user.id).map(x => x.section_id)
-      : []);
-  const sectionFilter = isAdmin ? '' : (sectionIds.length ? `WHERE s.section_id IN (${sectionIds.map(() => '?').join(',')})` : 'WHERE 1=0');
-  const params = isAdmin ? [] : sectionIds;
+  try {
+    const isAdmin = req.session.user.role === 'admin';
+    const isStaffScoped = isSectionStaffRole(req.session.user.role);
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    const sectionIds = isAdmin
+      ? null
+      : (isStaffScoped
+        ? db.prepare('SELECT section_id FROM teacher_sections WHERE teacher_id=?').all(req.session.user.id).map(x => x.section_id)
+        : []);
+    const staffScoped = !isAdmin;
+    const staffHasSections = !staffScoped || sectionIds.length > 0;
+    const staffSectionSql = sectionIds.length ? `IN (${sectionIds.map(() => '?').join(',')})` : '= -1';
+    const sectionParams = staffScoped ? sectionIds : [];
 
-  const students = isAdmin
-    ? db.prepare('SELECT COUNT(*) n FROM students WHERE active=1').get().n
-    : db.prepare(`SELECT COUNT(*) n FROM students s ${sectionFilter}`).get(...params).n;
+    const studentWhere = ['s.active=1'];
+    const studentParams = [];
+    if (schoolYearId) { studentWhere.push('sec.school_year_id = ?'); studentParams.push(schoolYearId); }
+    if (staffScoped) { studentWhere.push(`s.section_id ${staffSectionSql}`); studentParams.push(...sectionParams); }
+    const students = db.prepare(`
+      SELECT COUNT(*) n
+      FROM students s
+      JOIN sections sec ON sec.id = s.section_id
+      WHERE ${studentWhere.join(' AND ')}
+    `).get(...studentParams).n;
 
-  const cases = isAdmin
-    ? db.prepare('SELECT COUNT(*) n FROM violations').get().n
-    : db.prepare(`SELECT COUNT(*) n FROM violations v JOIN students s ON s.id=v.student_id ${sectionFilter}`).get(...params).n;
+    const vWhere = ["st.grade_level IN ('11','12')"];
+    const vParams = [];
+    if (schoolYearId) { vWhere.push('sec.school_year_id = ?'); vParams.push(schoolYearId); }
+    if (staffScoped) { vWhere.push(`st.section_id ${staffSectionSql}`); vParams.push(...sectionParams); }
+    const vWhereSql = `WHERE ${vWhere.join(' AND ')}`;
 
-  const service = isAdmin
-    ? db.prepare("SELECT COUNT(*) n FROM community_service WHERE status!='Completed'").get().n
-    : db.prepare(`SELECT COUNT(*) n FROM community_service cs JOIN students s ON s.id=cs.student_id ${sectionFilter} AND cs.status!='Completed'`).get(...params).n;
+    const cases = db.prepare(`
+      SELECT COUNT(*) n FROM violations v
+      JOIN students st ON st.id=v.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      ${vWhereSql}
+    `).get(...vParams).n;
 
-  res.json({
-    students,
-    cases,
-    activeService: service,
-    sections: isAdmin ? db.prepare('SELECT COUNT(*) n FROM sections').get().n : sectionIds.length
-  });
+    const openCases = db.prepare(`
+      SELECT COUNT(*) n FROM violations v
+      JOIN students st ON st.id=v.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      ${vWhereSql} AND lower(COALESCE(v.status,'')) NOT IN ('resolved','closed')
+    `).get(...vParams).n;
+
+    const svcWhere = ["st.grade_level IN ('11','12')", "lower(COALESCE(cs.status,'')) != 'completed'"];
+    const svcParams = [];
+    if (schoolYearId) { svcWhere.push('cs.school_year_id = ?'); svcParams.push(schoolYearId); }
+    if (staffScoped) { svcWhere.push(`st.section_id ${staffSectionSql}`); svcParams.push(...sectionParams); }
+    const activeService = db.prepare(`
+      SELECT COUNT(*) n FROM community_service cs
+      JOIN students st ON st.id=cs.student_id
+      ${`WHERE ${svcWhere.join(' AND ')}`}
+    `).get(...svcParams).n;
+
+    const secWhere = [];
+    const secParams = [];
+    if (schoolYearId) { secWhere.push('school_year_id = ?'); secParams.push(schoolYearId); }
+    if (staffScoped) { secWhere.push(`id ${staffSectionSql}`); secParams.push(...sectionParams); }
+    const sectionsCount = db.prepare(`SELECT COUNT(*) n FROM sections ${secWhere.length ? `WHERE ${secWhere.join(' AND ')}` : ''}`).get(...secParams).n;
+
+    const distribution = db.prepare(`
+      SELECT COALESCE(NULLIF(o.name,''), 'Unspecified') label, COUNT(*) count
+      FROM violations v
+      JOIN students st ON st.id=v.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      JOIN offense_catalog o ON o.id=v.offense_id
+      ${vWhereSql}
+      GROUP BY o.id, o.name
+      ORDER BY count DESC, label ASC
+    `).all(...vParams).map(r => ({
+      label: r.label,
+      count: Number(r.count || 0),
+      percent: cases ? Number(((Number(r.count || 0) / cases) * 100).toFixed(1)) : 0
+    }));
+
+    const monthly = db.prepare(`
+      SELECT substr(COALESCE(NULLIF(v.incident_date,''), v.created_at),1,7) month, COUNT(*) count
+      FROM violations v
+      JOIN students st ON st.id=v.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      ${vWhereSql}
+      GROUP BY month
+      HAVING month IS NOT NULL AND month != ''
+      ORDER BY month ASC
+    `).all(...vParams).map(r => ({
+      month: r.month,
+      count: Number(r.count || 0),
+      rate: cases ? Number(((Number(r.count || 0) / cases) * 100).toFixed(1)) : 0
+    }));
+
+    res.json({
+      students,
+      cases,
+      openCases,
+      activeService,
+      sections: sectionsCount,
+      totalViolations: cases,
+      distribution,
+      monthly
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to load dashboard summary.' });
+  }
 });
 
 app.get('/api/admin/pending', auth, admin, (req, res) => {
@@ -932,20 +1008,70 @@ app.post('/api/sections', auth, admin, (req, res) => {
     const year = db.prepare('SELECT label FROM school_years WHERE id=?').get(yearId);
     if (!year) return res.status(400).json({ error: 'Invalid school year.' });
     const grade = normalizeGradeLevel(req.body.grade || req.body.grade_level);
-    const name = clean(req.body.name || req.body.section_name, 80);
-    if (!grade || !name) return res.status(400).json({ error: 'Grade 11/12 and section name are required.' });
+    if (!grade) return res.status(400).json({ error: 'Grade 11 or Grade 12 is required.' });
     const track = normalizeTrack(req.body.track || req.body.track_name);
     const strand = normalizeStrand(req.body.strand || req.body.strand_group || req.body.strand_name);
     if (!track || !strand) return res.status(400).json({ error: 'Track and strand are required.' });
     const schoolYearLabel = clean(req.body.school_year, 40) || year.label;
-    const r = db.prepare(`
+
+    const rawNames = [];
+    const multi = req.body.section_names ?? req.body.sectionNames ?? req.body.names;
+    if (Array.isArray(multi)) rawNames.push(...multi);
+    else if (typeof multi === 'string') rawNames.push(...multi.split(/[\n,;]+/));
+    const singleName = clean(req.body.name || req.body.section_name, 80);
+    if (!rawNames.length && singleName) rawNames.push(singleName);
+
+    const seen = new Set();
+    const names = [];
+    for (const raw of rawNames) {
+      const name = clean(raw, 80);
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      names.push(name);
+    }
+    if (!names.length) return res.status(400).json({ error: 'At least one section name is required.' });
+
+    const existingRows = db.prepare('SELECT section_name FROM sections WHERE school_year_id=? AND grade_level=?').all(yearId, grade);
+    const existingNames = new Set(existingRows.map(r => String(r.section_name || '').trim().toLowerCase()));
+    const insert = db.prepare(`
       INSERT INTO sections(school_year_id,grade_level,section_name,strand,track,track_id,strand_id,school_year)
       VALUES (?,?,?,?,?,NULL,NULL,?)
-    `).run(yearId, grade, name, strand, track, schoolYearLabel);
-    audit(req.session.user, 'Create section', 'section', r.lastInsertRowid, `G${grade} ${name} - ${track}/${strand}`);
-    res.json({ id: r.lastInsertRowid });
+    `);
+    const createMany = db.transaction((sectionNames) => {
+      const created = [];
+      const skipped = [];
+      for (const sectionName of sectionNames) {
+        if (existingNames.has(sectionName.toLowerCase())) {
+          skipped.push({ section_name: sectionName, reason: 'Already exists for this school year and grade level.' });
+          continue;
+        }
+        const r = insert.run(yearId, grade, sectionName, strand, track, schoolYearLabel);
+        created.push({ id: r.lastInsertRowid, section_name: sectionName });
+        existingNames.add(sectionName.toLowerCase());
+      }
+      return { created, skipped };
+    });
+
+    const { created, skipped } = createMany(names);
+    if (created.length) {
+      audit(req.session.user, 'Create section', 'section', created[0].id, `G${grade} ${track}/${strand}: ${created.map(c => c.section_name).join(', ')}${skipped.length ? `; skipped ${skipped.length}` : ''}`);
+    }
+    if (!created.length) {
+      return res.status(409).json({ error: 'No sections were created.', skipped });
+    }
+    res.json({
+      id: created[0].id,
+      created_count: created.length,
+      created,
+      skipped,
+      message: created.length === 1
+        ? `Section ${created[0].section_name} added.`
+        : `${created.length} sections added${skipped.length ? `, ${skipped.length} skipped` : ''}.`
+    });
   } catch (e) {
-    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'Section already exists for this school year.' : 'Unable to create section. Use Grade 11 or Grade 12 with track and strand.' });
+    res.status(400).json({ error: e.message.includes('UNIQUE') ? 'A section already exists for this school year and grade level.' : 'Unable to create section. Use Grade 11 or Grade 12 with track and strand.' });
   }
 });
 
@@ -1522,6 +1648,138 @@ app.get('/api/exports/community-service.xlsx', auth, verified, (req, res) => {
     sendXlsx(res, 'community-service.xlsx', headers, data);
   } catch (e) {
     res.status(500).json({ error: 'Unable to export community service.' });
+  }
+});
+
+function dashboardScope(req, schoolYearId) {
+  const isAdmin = req.session.user.role === 'admin';
+  const isStaffScoped = isSectionStaffRole(req.session.user.role);
+  const sectionIds = isAdmin
+    ? null
+    : (isStaffScoped
+      ? db.prepare('SELECT section_id FROM teacher_sections WHERE teacher_id=?').all(req.session.user.id).map(x => x.section_id)
+      : []);
+  const staffScoped = !isAdmin;
+  const staffSectionSql = sectionIds.length ? `IN (${sectionIds.map(() => '?').join(',')})` : '= -1';
+  const sectionParams = staffScoped ? sectionIds : [];
+  const vWhere = ["st.grade_level IN ('11','12')"];
+  const vParams = [];
+  if (schoolYearId) { vWhere.push('sec.school_year_id = ?'); vParams.push(schoolYearId); }
+  if (staffScoped) { vWhere.push(`st.section_id ${staffSectionSql}`); vParams.push(...sectionParams); }
+  return { isAdmin, staffScoped, sectionIds, staffSectionSql, sectionParams, vWhereSql: `WHERE ${vWhere.join(' AND ')}`, vParams };
+}
+
+app.get('/api/exports/dashboard-monthly.xlsx', auth, verified, (req, res) => {
+  try {
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    const scope = dashboardScope(req, schoolYearId);
+    const total = db.prepare(`SELECT COUNT(*) n FROM violations v JOIN students st ON st.id=v.student_id JOIN sections sec ON sec.id=st.section_id ${scope.vWhereSql}`).get(...scope.vParams).n;
+    const rows = db.prepare(`
+      SELECT substr(COALESCE(NULLIF(v.incident_date,''), v.created_at),1,7) month, COUNT(*) count
+      FROM violations v
+      JOIN students st ON st.id=v.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      ${scope.vWhereSql}
+      GROUP BY month
+      HAVING month IS NOT NULL AND month != ''
+      ORDER BY month ASC
+    `).all(...scope.vParams);
+    const headers = ['Month', 'Number of Violations', 'Rate (%)', 'Share of Total Violations'];
+    const data = rows.map(r => {
+      const count = Number(r.count || 0);
+      const rate = total ? ((count / total) * 100).toFixed(1) + '%' : '0.0%';
+      return [r.month, count, rate, `${count}/${total}`];
+    });
+    sendXlsx(res, 'dashboard-monthly-violations.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export dashboard monthly summary.' });
+  }
+});
+
+app.get('/api/exports/dashboard-distribution.xlsx', auth, verified, (req, res) => {
+  try {
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    const scope = dashboardScope(req, schoolYearId);
+    const total = db.prepare(`SELECT COUNT(*) n FROM violations v JOIN students st ON st.id=v.student_id JOIN sections sec ON sec.id=st.section_id ${scope.vWhereSql}`).get(...scope.vParams).n;
+    const rows = db.prepare(`
+      SELECT COALESCE(NULLIF(o.name,''), 'Unspecified') label, o.severity, COUNT(*) count
+      FROM violations v
+      JOIN students st ON st.id=v.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      JOIN offense_catalog o ON o.id=v.offense_id
+      ${scope.vWhereSql}
+      GROUP BY o.id, o.name, o.severity
+      ORDER BY count DESC, label ASC
+    `).all(...scope.vParams);
+    const headers = ['Violation / Offense', 'Severity', 'Number of Violations', 'Percent of Total'];
+    const data = rows.map(r => {
+      const count = Number(r.count || 0);
+      const pct = total ? ((count / total) * 100).toFixed(1) + '%' : '0.0%';
+      return [r.label, r.severity || '', count, pct];
+    });
+    sendXlsx(res, 'dashboard-violation-distribution.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export dashboard distribution.' });
+  }
+});
+
+app.get('/api/exports/sections.xlsx', auth, verified, (req, res) => {
+  try {
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    const scope = dashboardScope(req, schoolYearId);
+    const where = [];
+    const params = [];
+    if (schoolYearId) { where.push('s.school_year_id = ?'); params.push(schoolYearId); }
+    if (scope.staffScoped) { where.push(`s.id ${scope.staffSectionSql}`); params.push(...scope.sectionParams); }
+    const rows = db.prepare(`
+      SELECT s.grade_level, s.section_name, COALESCE(NULLIF(s.track,''),'') track, COALESCE(NULLIF(s.strand,''),'') strand,
+             y.label school_year, CASE WHEN y.is_active=1 THEN 'Active' ELSE 'Inactive' END school_year_status
+      FROM sections s
+      JOIN school_years y ON y.id=s.school_year_id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY y.label DESC, s.grade_level, s.section_name
+    `).all(...params);
+    const headers = ['Grade Level', 'Section', 'Track', 'Strand/Group', 'School Year', 'School Year Status'];
+    const data = rows.map(r => [r.grade_level, r.section_name, r.track, r.strand, r.school_year, r.school_year_status]);
+    sendXlsx(res, 'sections.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export sections.' });
+  }
+});
+
+app.get('/api/exports/active-service.xlsx', auth, verified, (req, res) => {
+  try {
+    const schoolYearId = Number(req.query.school_year_id || req.query.year || req.query.yearId || 0);
+    const scope = dashboardScope(req, schoolYearId);
+    const where = ["st.grade_level IN ('11','12')", "lower(COALESCE(cs.status,'')) != 'completed'"];
+    const params = [];
+    if (schoolYearId) { where.push('cs.school_year_id = ?'); params.push(schoolYearId); }
+    if (scope.staffScoped) { where.push(`st.section_id ${scope.staffSectionSql}`); params.push(...scope.sectionParams); }
+    const rows = db.prepare(`
+      SELECT cs.id, v.case_number, st.student_number, st.first_name, st.last_name, st.grade_level,
+             sec.section_name, y.label school_year, COALESCE(NULLIF(sec.track,''), NULLIF(st.track,''), '') track_name,
+             COALESCE(NULLIF(sec.strand,''), '') strand_name,
+             COALESCE(NULLIF(v.community_service_type,''), '') service_type,
+             cs.hours_required AS required_hours,
+             COALESCE((SELECT SUM(hours_served) FROM service_attendance a WHERE a.service_id=cs.id),0) AS completed_hours,
+             cs.status, cs.due_date, cs.notes, cs.created_at
+      FROM community_service cs
+      JOIN students st ON st.id=cs.student_id
+      JOIN sections sec ON sec.id=st.section_id
+      JOIN school_years y ON y.id=cs.school_year_id
+      LEFT JOIN violations v ON v.id=cs.violation_id
+      WHERE ${where.join(' AND ')}
+      ORDER BY cs.created_at DESC, cs.id DESC
+    `).all(...params);
+    const headers = ['Service ID','Case Number','LRN','First Name','Last Name','Grade Level','Section','School Year','Track','Strand/Group','Service Type','Required Hours','Completed Hours','Remaining Hours','Status','Due Date','Notes','Created At'];
+    const data = rows.map(r => {
+      const required = Number(r.required_hours || 0);
+      const completed = Number(r.completed_hours || 0);
+      return [r.id, r.case_number || '', r.student_number || '', r.first_name || '', r.last_name || '', r.grade_level || '', r.section_name || '', r.school_year || '', r.track_name || '', r.strand_name || '', r.service_type || '', required, completed, Math.max(0, Math.round((required - completed) * 100) / 100), r.status || '', r.due_date || '', r.notes || '', r.created_at || ''];
+    });
+    sendXlsx(res, 'active-service-items.xlsx', headers, data);
+  } catch (e) {
+    res.status(500).json({ error: 'Unable to export active service items.' });
   }
 });
 

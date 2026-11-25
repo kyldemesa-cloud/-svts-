@@ -15,6 +15,7 @@ let view = 'dashboard';
 let violationFilters = { added_from: '', added_to: '', grade_level: '', section_id: '', strand: '', track: '', violation_type: '', service_status: '', search: '' };
 let selectedSchoolYearId = 0;
 let dashboardRecent = { items: [], total: 0 };
+let dashboardSummary = null;
 let calendarState = { month: new Date().toISOString().slice(0, 7), days: [], selectedDate: '', selectedItems: [] };
 let signupOptionsCache = null;
 let studentSearchResults = [];
@@ -157,28 +158,37 @@ function renderFilterForm(prefix, opts = {}) {
   const offenseChoices = offenses.map(o => `<option value="${o.id}" ${String(f.violation_type)===String(o.id)?'selected':''}>${esc(o.name)}</option>`).join('');
   const trackChoices = distinctTracks().map(t => `<option value="${esc(t)}" ${String(f.track||'')===String(t)?'selected':''}>${esc(t)}</option>`).join('');
   const strandChoices = distinctStrands().map(s => `<option value="${esc(s)}" ${String(f.strand||'')===String(s)?'selected':''}>${esc(s)}</option>`).join('');
-  const chips = activeFilterEntries().map(x => `<span class="badge review">${esc(x.label)}: ${esc(x.value)}</span>`).join(' ');
+  const active = activeFilterEntries();
+  const chips = active.map(x => `<span class="badge review">${esc(x.label)}: ${esc(x.value)}</span>`).join(' ');
+  const label = opts.label || 'Filters';
+  const openAttr = (opts.open || active.length) ? ' open' : '';
   return `
-    <form class="filter-panel" id="${prefix}FilterForm">
-      <div class="filter-grid">
-        <label>Added from<input id="${prefix}From" type="date" value="${esc(f.added_from || '')}"></label>
-        <label>Added to<input id="${prefix}To" type="date" value="${esc(f.added_to || '')}"></label>
-        <label>Grade level<select id="${prefix}Grade"><option value="">All grades</option>${GRADE_OPTIONS.map(g => `<option value="${g}" ${String(f.grade_level)===g?'selected':''}>Grade ${g}</option>`).join('')}</select></label>
-        <label>Section<select id="${prefix}Section"><option value="">All sections</option>${sectionChoices}</select></label>
-        <label>Track<select id="${prefix}Track"><option value="">All tracks</option>${trackChoices}</select></label>
-        <label>Strand/Group<select id="${prefix}Strand"><option value="">All strands/groups</option>${strandChoices}</select></label>
-        <label>Violation type<select id="${prefix}Type"><option value="">All types</option>${offenseChoices}</select></label>
-        <label>Service status<select id="${prefix}Service"><option value="">All statuses</option>${['none','pending','in_progress','completed'].map(s => `<option value="${s}" ${String(f.service_status)===s?'selected':''}>${s}</option>`).join('')}</select></label>
-        <label>Search (LRN/case/name)<input id="${prefix}Search" value="${esc(f.search || '')}" placeholder="LRN, student name, case, section"></label>
-      </div>
-      <div class="filter-actions">
-        <button class="primary smallbtn" type="submit">Apply filters</button>
-        <button class="ghost smallbtn" type="button" id="${prefix}Clear">Clear filters</button>
-        ${opts.extraButtons || ''}
-      </div>
-      <div class="tiny muted">Date filters are inclusive. Grade 11-12 only. Teachers and section staff are limited to their assigned section(s).</div>
-      ${chips ? `<div class="filter-chips">${chips}</div>` : ''}
-    </form>
+    <details class="filter-dropdown"${openAttr}>
+      <summary class="filter-dropdown-summary">
+        <span>${esc(label)}</span>
+        ${active.length ? `<span class="badge review">${active.length} active</span>` : '<span class="tiny muted">No active filters</span>'}
+      </summary>
+      <form class="filter-panel" id="${prefix}FilterForm">
+        <div class="filter-grid">
+          <label>Added from<input id="${prefix}From" type="date" value="${esc(f.added_from || '')}"></label>
+          <label>Added to<input id="${prefix}To" type="date" value="${esc(f.added_to || '')}"></label>
+          <label>Grade level<select id="${prefix}Grade"><option value="">All grades</option>${GRADE_OPTIONS.map(g => `<option value="${g}" ${String(f.grade_level)===g?'selected':''}>Grade ${g}</option>`).join('')}</select></label>
+          <label>Section<select id="${prefix}Section"><option value="">All sections</option>${sectionChoices}</select></label>
+          <label>Track<select id="${prefix}Track"><option value="">All tracks</option>${trackChoices}</select></label>
+          <label>Strand/Group<select id="${prefix}Strand"><option value="">All strands/groups</option>${strandChoices}</select></label>
+          <label>Violation type<select id="${prefix}Type"><option value="">All types</option>${offenseChoices}</select></label>
+          <label>Service status<select id="${prefix}Service"><option value="">All statuses</option>${['none','pending','in_progress','completed'].map(s => `<option value="${s}" ${String(f.service_status)===s?'selected':''}>${s}</option>`).join('')}</select></label>
+          <label>Search (LRN/case/name)<input id="${prefix}Search" value="${esc(f.search || '')}" placeholder="LRN, student name, case, section"></label>
+        </div>
+        <div class="filter-actions">
+          <button class="primary smallbtn" type="submit">Apply filters</button>
+          <button class="ghost smallbtn" type="button" id="${prefix}Clear">Clear filters</button>
+          ${opts.extraButtons || ''}
+        </div>
+        <div class="tiny muted">Date filters are inclusive. Grade 11-12 only. Teachers and section staff are limited to their assigned section(s).</div>
+        ${chips ? `<div class="filter-chips">${chips}</div>` : ''}
+      </form>
+    </details>
   `;
 }
 function readFilterForm(prefix) {
@@ -250,6 +260,9 @@ async function loadData() {
     const qs = selectedSchoolYearId ? ('?school_year_id=' + encodeURIComponent(selectedSchoolYearId)) : '';
     service = await get('/api/community-service' + qs);
   } catch { service = []; }
+  try {
+    dashboardSummary = await get('/api/dashboard' + yearQs);
+  } catch { dashboardSummary = null; }
   if (me.role === 'admin') {
     try { users = await get('/api/users'); } catch { users = []; }
     try { pending = await get('/api/admin/pending'); } catch { pending = []; }
@@ -326,32 +339,156 @@ function renderStudentSearchCard() {
   </div>`;
 }
 
+function piePalette(i) {
+  const colors = ['#2563eb', '#f97316', '#16a34a', '#dc2626', '#7c3aed', '#0891b2', '#ca8a04', '#db2777', '#475569', '#059669'];
+  return colors[i % colors.length];
+}
+
+function renderViolationPie(distribution = []) {
+  const rows = (distribution || []).filter(r => Number(r.count) > 0);
+  const total = rows.reduce((sum, r) => sum + Number(r.count || 0), 0);
+  if (!total) return '<div class="empty-state">No violation data available for this school year.</div>';
+  const size = 220;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 84;
+  let start = -Math.PI / 2;
+  const slices = rows.map((row, i) => {
+    const value = Number(row.count || 0);
+    const angle = (value / total) * Math.PI * 2;
+    const end = start + angle;
+    const large = angle > Math.PI ? 1 : 0;
+    const x1 = cx + r * Math.cos(start);
+    const y1 = cy + r * Math.sin(start);
+    const x2 = cx + r * Math.cos(end);
+    const y2 = cy + r * Math.sin(end);
+    const d = value === total
+      ? `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r} Z`
+      : `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+    start = end;
+    const pct = ((value / total) * 100).toFixed(1);
+    return { ...row, color: piePalette(i), d, pct };
+  });
+  const legend = slices.map(s => `
+    <div class="pie-legend-item">
+      <span class="pie-swatch" style="background:${s.color}"></span>
+      <div class="pie-legend-text"><strong>${esc(s.label)}</strong><div class="tiny muted">${s.count} violation(s) · ${s.pct}%</div></div>
+    </div>`).join('');
+  return `
+    <div class="pie-wrap">
+      <svg viewBox="0 0 ${size} ${size}" class="pie-chart" role="img" aria-label="Violation distribution pie chart">
+        ${slices.map(s => `<path d="${s.d}" fill="${s.color}"><title>${esc(s.label)}: ${s.count} (${s.pct}%)</title></path>`).join('')}
+        <circle cx="${cx}" cy="${cy}" r="38" fill="white"></circle>
+        <text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="18" font-weight="700" fill="#0f172a">${total}</text>
+        <text x="${cx}" y="${cy + 16}" text-anchor="middle" font-size="10" fill="#64748b">Total</text>
+      </svg>
+      <div class="pie-legend">${legend}</div>
+    </div>`;
+}
+
+function renderMonthlyViolations(monthly = []) {
+  const rows = (monthly || []).filter(r => r && r.month);
+  const total = rows.reduce((sum, r) => sum + Number(r.count || 0), 0);
+  if (!rows.length) return '<div class="empty-state">No monthly violation data available for this school year.</div>';
+  const max = Math.max(1, ...rows.map(r => Number(r.count || 0)));
+  const body = rows.map(r => {
+    const count = Number(r.count || 0);
+    const rate = total ? ((count / total) * 100).toFixed(1) : '0.0';
+    const width = Math.max(4, Math.round((count / max) * 100));
+    const label = new Date(String(r.month) + '-01T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    return `<tr>
+      <td>${esc(label)}</td>
+      <td><strong>${count}</strong></td>
+      <td>${rate}%</td>
+      <td><div class="rate-bar"><span style="width:${width}%"></span></div></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Month</th><th>Number of Violations</th><th>Rate (% of Total)</th><th>Trend</th></tr></thead><tbody>${body}</tbody></table></div>
+    <p class="tiny muted" style="margin-top:8px">Rate is each month's share of total violations in the selected school year/scope (${total} total).</p>`;
+}
+
+async function openDashboardBox(kind) {
+  const yearQs = selectedSchoolYearId ? ('?school_year_id=' + encodeURIComponent(selectedSchoolYearId)) : '';
+  if (kind === 'sections') {
+    const rows = sections.map(s => `<tr><td>G${esc(s.grade_level)}</td><td>${esc(s.section_name)}</td><td>${esc(s.track || s.track_name || '—')}</td><td>${esc(s.strand || s.strand_name || '—')}</td><td>${esc(s.school_year || '')}</td></tr>`).join('');
+    modal(`<div class="modal-head"><h3>Grade 11-12 Sections</h3><button class="iconbtn modal-close" type="button">×</button></div>
+      <div class="actions" style="margin-bottom:10px"><a class="primary smallbtn" href="/api/exports/sections.xlsx${yearQs}" target="_blank" rel="noopener">Export Excel</a></div>
+      ${table(['Grade','Section','Track','Strand/Group','School Year'], rows || '<tr><td colspan="5" class="muted">No sections found.</td></tr>')}`);
+    return;
+  }
+  if (kind === 'cases') {
+    const rows = (dashboardRecent.items || cases).slice(0, 50).map(c => `<tr><td><strong>${esc(c.case_number || '—')}</strong></td><td>${esc((c.first_name||'')+' '+(c.last_name||''))}<div class="tiny muted">LRN: ${esc(lrnOf(c))}</div></td><td>G${esc(c.grade_level||'')} · ${esc(c.section_name||'')}</td><td>${esc(c.offense||'')}</td><td>${badge(c.severity||'')}</td><td>${fmtDate(c.incident_date)}</td><td>${badge(c.status||'')}</td></tr>`).join('');
+    const exportQs = new URLSearchParams(filterParams());
+    if (selectedSchoolYearId) exportQs.set('school_year_id', selectedSchoolYearId);
+    modal(`<div class="modal-head"><h3>Recent Violation Cases</h3><button class="iconbtn modal-close" type="button">×</button></div>
+      <div class="actions" style="margin-bottom:10px"><a class="primary smallbtn" href="/api/exports/violations.xlsx?${exportQs.toString()}" target="_blank" rel="noopener">Export Excel</a></div>
+      ${table(['Case No.','Student','Grade / Section','Offense','Severity','Date','Status'], rows || '<tr><td colspan="7" class="muted">No violation cases found.</td></tr>')}`);
+    return;
+  }
+  if (kind === 'activeService') {
+    const items = service.filter(x => !/complete/i.test(x.status || ''));
+    const rows = items.map(x => {
+      const required = hoursNum(x.hours_required ?? x.required_hours ?? x.required_service_hours);
+      const completed = hoursNum(x.hours_completed ?? x.completed_hours ?? x.completed_service_hours);
+      return `<tr><td><strong>${esc(x.case_number || '—')}</strong></td><td>${esc((x.first_name||'')+' '+(x.last_name||''))}<div class="tiny muted">LRN: ${esc(lrnOf(x))}</div></td><td>${esc(x.service_type || x.community_service_type || '—')}</td><td>${required.toFixed(2)}</td><td>${completed.toFixed(2)}</td><td>${badge(x.status || 'Pending')}</td><td>${fmtDate(x.due_date)}</td></tr>`;
+    }).join('');
+    modal(`<div class="modal-head"><h3>Active Service Items</h3><button class="iconbtn modal-close" type="button">×</button></div>
+      <div class="actions" style="margin-bottom:10px"><a class="primary smallbtn" href="/api/exports/active-service.xlsx${yearQs}" target="_blank" rel="noopener">Export Excel</a></div>
+      ${table(['Case No.','Student','Service Type','Required Hours','Completed Hours','Status','Due Date'], rows || '<tr><td colspan="7" class="muted">No active service items found.</td></tr>')}`);
+  }
+}
+
 function renderDashboard() {
   const isAdmin = me.role === 'admin';
   const selYear = selectedSchoolYear();
-  const openCases = (dashboardRecent.items || cases).filter(c => !/resolved|closed/i.test(c.status || '')).length;
-  const svcOpen = service.filter(x => !/complete/i.test(x.status || '')).length;
+  const summary = dashboardSummary || {};
+  const openCases = Number(summary.openCases ?? (dashboardRecent.items || cases).filter(c => !/resolved|closed/i.test(c.status || '')).length);
+  const svcOpen = Number(summary.activeService ?? service.filter(x => !/complete/i.test(x.status || '')).length);
+  const sectionsCount = Number(summary.sections ?? sections.length);
+  const casesCount = Number(summary.cases ?? summary.totalViolations ?? dashboardRecent.total ?? cases.length);
+  const yearQs = selectedSchoolYearId ? `?school_year_id=${encodeURIComponent(selectedSchoolYearId)}` : '';
+  const violationsExportQs = new URLSearchParams(filterParams());
+  if (selectedSchoolYearId) violationsExportQs.set('school_year_id', selectedSchoolYearId);
+
   let html = `<div class="page-head"><div>
       <p class="eyebrow">SAN JOSE LITEX SENIOR HIGH SCHOOL</p>
       <h2 class="section-title" style="margin:0;font-size:30px;color:var(--navy)">Welcome, ${esc(me.full_name)}</h2>
       <p class="muted" style="margin-top:4px">${isAdmin ? 'Grade 11-12 dashboard with LRN search, automatic case numbers, and admin-defined track/strand sections.' : 'Grade 11-12 dashboard for your assigned section records and LRN lookup.'} Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}.</p>
     </div><div style="min-width:260px"><label>View school year<select id="dashboardYearSelect">${yearOptionsHtml(false)}</select></label></div></div>`;
 
-  html += `<div class="cards">${[
-    ['Grade 11-12 sections', sections.length, 'Configured sections'],
-    ['Recent cases', dashboardRecent.total || cases.length, `${openCases} open in current view`],
-    ['Active service items', svcOpen, 'Community service tracking']
-  ].map(([label, value, sub], i) => `<div class="card kpi accent-kpi color-kpi-${i % 4}"><div class="label">${label}</div><strong>${value}</strong><div class="sub">${sub}</div></div>`).join('')}</div>`;
+  html += `<div class="cards dashboard-kpi-cards">${[
+    { key: 'sections', label: 'Grade 11-12 sections', value: sectionsCount, sub: 'Configured sections · Click to view/export', exportHref: `/api/exports/sections.xlsx${yearQs}` },
+    { key: 'cases', label: 'Violation cases', value: casesCount, sub: `${openCases} open case(s) · Click to view/export`, exportHref: `/api/exports/violations.xlsx?${violationsExportQs.toString()}` },
+    { key: 'activeService', label: 'Active service items', value: svcOpen, sub: 'Community service tracking · Click to view/export', exportHref: `/api/exports/active-service.xlsx${yearQs}` }
+  ].map((kpi, i) => `
+    <div class="card kpi accent-kpi color-kpi-${i % 4} clickable-kpi" data-dashboard-box="${kpi.key}" role="button" tabindex="0" title="Open ${esc(kpi.label)} details">
+      <div class="label">${kpi.label}</div>
+      <strong>${kpi.value}</strong>
+      <div class="sub">${esc(kpi.sub)}</div>
+      <div class="kpi-actions"><span class="tiny muted">View details</span><a class="kpi-export-link" href="${kpi.exportHref}" data-export-link="1">Export Excel</a></div>
+    </div>`).join('')}</div>`;
+
+  html += `<div style="height:12px"></div><div class="dashboard-analytics-grid">
+    <div class="card accent-card colorful-card">
+      <div class="page-head" style="margin-bottom:8px"><div><h3 style="margin:0">Violation distribution</h3><p class="tiny muted" style="margin:4px 0 0">Pie graph with percent of violations by offense.</p></div><a class="ghost smallbtn" href="/api/exports/dashboard-distribution.xlsx${yearQs}" target="_blank" rel="noopener">Export Excel</a></div>
+      ${renderViolationPie(summary.distribution || [])}
+    </div>
+    <div class="card accent-card colorful-card">
+      <div class="page-head" style="margin-bottom:8px"><div><h3 style="margin:0">Monthly violation summary</h3><p class="tiny muted" style="margin:4px 0 0">Number and rate of violations per month.</p></div><a class="ghost smallbtn" href="/api/exports/dashboard-monthly.xlsx${yearQs}" target="_blank" rel="noopener">Export Excel</a></div>
+      ${renderMonthlyViolations(summary.monthly || [])}
+    </div>
+  </div>`;
 
   html += `<div style="height:12px"></div>${renderStudentSearchCard()}`;
-  html += `<div style="height:12px"></div><div class="card accent-card colorful-card"><div class="page-head" style="margin-bottom:8px"><h3 style="margin:0">Violation filters</h3></div>${renderFilterForm('dbf')}</div>`;
+  html += `<div style="height:12px"></div><div class="card accent-card colorful-card">${renderFilterForm('dbf', { label: 'Violation filters' })}</div>`;
 
   html += `<h2 class="section-title">Quick actions</h2><div class="actions" style="margin-bottom:18px">`;
   html += `<button class="ghost smallbtn" data-view="violations" type="button">Open violation records</button>`;
   html += `<button class="ghost smallbtn" data-view="community" type="button">Open service calendar</button>`;
   if (isAdmin) {
     html += `<button class="primary smallbtn" data-modal="recordCase" type="button">+ Record violation</button>`;
-    html += `<button class="primary smallbtn" data-modal="section" type="button">+ Add track & strand / section</button>`;
+    html += `<button class="primary smallbtn" data-modal="section" type="button">+ Add sections (track & strand)</button>`;
     html += `<button class="ghost smallbtn" data-view="accounts" type="button">Manage accounts</button>`;
   }
   html += `</div>`;
@@ -379,6 +516,15 @@ function renderDashboard() {
     await loadData();
     renderDashboard();
   });
+  $$('[data-export-link]').forEach(a => a.addEventListener('click', (e) => e.stopPropagation()));
+  $$('[data-dashboard-box]').forEach(card => {
+    const open = async () => {
+      try { await openDashboardBox(card.dataset.dashboardBox); }
+      catch (err) { toast(err?.message || 'Unable to open dashboard detail.'); }
+    };
+    card.addEventListener('click', () => { void open(); });
+    card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void open(); } });
+  });
 }
 
 function renderCases() {
@@ -400,7 +546,7 @@ function renderCases() {
 
   $('#content').innerHTML =
     pageHead('Violation records', `<div class="actions"><button class="ghost" id="exportViolationsXlsx" type="button">Export Violations XLSX</button><button class="ghost" id="exportServiceXlsx" type="button">Export Service XLSX</button>${me.role === 'admin' ? '<button class="primary" data-modal="recordCase" type="button">+ Record violation</button>' : ''}</div>`) +
-    renderFilterForm('vf') +
+    renderFilterForm('vf', { label: 'Violation filters' }) +
     `<div style="height:12px"></div><div class="note colorful-note">Record violations with student details in one form (Grade 11-12). Student info is saved/linked automatically by LRN. <strong>Case numbers are assigned automatically.</strong> No separate student module is required.</div><div style="height:12px"></div>` +
     table(['Case no. (auto)','Student','Grade / Section / Track-Strand','Offense / Service type','Severity','Date','Status / Service hours', me.role === 'admin' ? 'Actions' : 'Details'], rows);
   wireFilterForm('vf', renderCases);
@@ -426,9 +572,9 @@ function renderSections() {
   </tr>`).join('');
 
   $('#content').innerHTML =
-    pageHead('Sections & school years', me.role === 'admin' ? '<div class="actions"><button class="primary" data-modal="year" type="button">+ Add school year</button><button class="primary" data-modal="section" type="button">+ Add track & strand / section</button></div>' : '') +
+    pageHead('Sections & school years', me.role === 'admin' ? '<div class="actions"><button class="primary" data-modal="year" type="button">+ Add school year</button><button class="primary" data-modal="section" type="button">+ Add sections (track & strand)</button></div>' : '') +
     `<div style="height:15px"></div><div class="two-col"><div>${pageHead('School years', '')}${table(['School year','Status','Archived','Action'], yearRows)}<p class="tiny muted">Admins can set each school year as active or inactive using the status dropdown.</p></div><div>${pageHead('Grade 11-12 sections', '')}${table(['Grade','Section','Track','Strand/Group','School year','Actions'], secRows)}</div></div>` +
-    `<div style="height:12px"></div><div class="card colorful-card"><h3 style="margin-top:0">Admin-defined track & strand</h3><p class="tiny muted">Only Grade 11 and Grade 12 are supported. Use one action to add a section by selecting the grade level and entering the track and strand/group together. Student LRN/details are captured when recording violations.</p></div>`;
+    `<div style="height:12px"></div><div class="card colorful-card"><h3 style="margin-top:0">Admin-defined track & strand</h3><p class="tiny muted">Only Grade 11 and Grade 12 are supported. Use one action to select a grade level, enter the track and strand/group, and add one or many section names for the same school year. Student LRN/details are captured when recording violations.</p></div>`;
 
   $$('[data-year-status]').forEach(sel => {
     sel.onchange = async () => {
@@ -470,7 +616,7 @@ function renderCommunity() {
   $('#content').innerHTML = `
     ${pageHead('Community service tracker', `<div class="actions"><button class="ghost" id="calPrev" type="button">< Prev</button><strong>${esc(monthLabel)}</strong><button class="ghost" id="calNext" type="button">Next ></button></div>`)}
     <div class="card" style="margin-bottom:12px"><div class="row" style="align-items:end"><div style="min-width:260px"><label>School year archive<select id="communityYearSelect">${yearOptionsHtml(false)}</select></label></div><div class="tiny muted">Viewing ${esc(selYear?.label || 'selected school year')}${selYear?.is_active ? '' : ' (archived/inactive)'}. Calendar and service records are scoped to this year.</div></div></div>
-    ${renderFilterForm('calf')}
+    ${renderFilterForm('calf', { label: 'Calendar filters' })}
     <div style="height:12px"></div>
     <div class="calendar-layout">
       <div class="calendar-wrap calendar-wide card colorful-card">
@@ -672,25 +818,39 @@ function openModal(kind, id) {
   if (kind === 'section') {
     const s = id ? sections.find(x => x.id == id) : null;
     const yearOptions = years.map(y => `<option value="${y.id}" ${String(s?.school_year_id||'')===String(y.id)?'selected':''}>${esc(y.label)} (${y.is_active?'active':'inactive'})</option>`).join('');
-    modal(`<div class="modal-head"><h3>${s ? 'Edit section / track & strand' : 'Add track & strand / section'}</h3><button class="iconbtn modal-close" type="button">×</button></div>
+    const sectionNameField = s
+      ? `<label>Section name<input name="section_name" required value="${esc(s?.section_name || '')}" placeholder="e.g. Rizal"></label>`
+      : `<label style="grid-column:1/-1">Section names<textarea name="section_names" required rows="4" placeholder="Enter one section name per line&#10;e.g. Rizal&#10;Bonifacio&#10;Mabini"></textarea><div class="tiny muted">Enter multiple section names for the same grade level, track, strand/group, and school year. Separate names with new lines or commas.</div></label>`;
+    modal(`<div class="modal-head"><h3>${s ? 'Edit section / track & strand' : 'Add track & strand / sections'}</h3><button class="iconbtn modal-close" type="button">×</button></div>
       <form id="sectionForm">
-        <div class="note colorful-note" style="margin-bottom:10px">One action: select Grade 11 or 12 and enter the track and strand/group together with the section and school year.</div>
+        <div class="note colorful-note" style="margin-bottom:10px">${s ? 'Update this section’s grade level, track, strand/group, or school year.' : 'One action: select Grade 11 or 12, enter the track and strand/group, then add one or many section names for the same school year.'}</div>
         <div class="modal-grid">
           <label>Grade level<select name="grade_level" required>${GRADE_OPTIONS.map(g=>`<option value="${g}" ${String(s?.grade_level||'11')===g?'selected':''}>Grade ${g}</option>`).join('')}</select></label>
-          <label>Section name<input name="section_name" required value="${esc(s?.section_name || '')}" placeholder="e.g. Rizal"></label>
+          ${sectionNameField}
           <label>Track<input name="track" required value="${esc(s?.track || s?.track_name || '')}" placeholder="e.g. Academic / TVL / Sports"></label>
           <label>Strand / Group<input name="strand" required value="${esc(s?.strand || s?.strand_name || '')}" placeholder="e.g. STEM / ICT / HUMSS"></label>
           <label style="grid-column:1/-1">School year<select name="school_year_id" required><option value="">Select school year</option>${yearOptions}</select></label>
         </div>
-        <div class="actions" style="margin-top:12px;justify-content:flex-end"><button class="ghost modal-cancel" type="button">Cancel</button><button class="primary" type="submit">${s ? 'Save changes' : 'Save section (track & strand)'}</button></div>
+        <div class="actions" style="margin-top:12px;justify-content:flex-end"><button class="ghost modal-cancel" type="button">Cancel</button><button class="primary" type="submit">${s ? 'Save changes' : 'Save sections'}</button></div>
       </form>`);
     $('#sectionForm').onsubmit = async (e) => {
       e.preventDefault();
-      const data = Object.fromEntries(new FormData(e.target).entries());
+      const fd = new FormData(e.target);
+      const data = Object.fromEntries(fd.entries());
       data.school_year_id = Number(data.school_year_id);
       try {
-        if (s) await put('/api/sections/' + s.id, data); else await post('/api/sections', data);
-        toast(s ? 'Section updated.' : 'Section with track & strand added.'); closeModal(); await loadData(); render();
+        if (s) {
+          await put('/api/sections/' + s.id, data);
+          toast('Section updated.');
+        } else {
+          data.section_names = String(data.section_names || '').split(/[\n,;]+/).map(v => v.trim()).filter(Boolean);
+          if (!data.section_names.length) { toast('Enter at least one section name.'); return; }
+          const res = await post('/api/sections', data);
+          const skipped = Array.isArray(res?.skipped) ? res.skipped.length : 0;
+          toast(res?.message || (res?.created_count > 1 ? `${res.created_count} sections added.` : 'Section added.'));
+          if (skipped) toast(`${skipped} section name(s) were skipped because they already exist.`);
+        }
+        closeModal(); await loadData(); render();
       } catch (err) { toast(err.message); }
     };
     return;
@@ -717,12 +877,15 @@ function openModal(kind, id) {
 
   if (kind === 'offense') {
     const o = id ? offenses.find(x => String(x.id) === String(id)) : null;
+    const statusField = o
+      ? `<label>Status<select name="active"><option value="1" ${(o?.active ?? o?.is_active ?? 1) ? 'selected' : ''}>Active</option><option value="0" ${!(o?.active ?? o?.is_active ?? 1) ? 'selected' : ''}>Inactive</option></select></label>`
+      : '';
     modal(`<div class="modal-head"><h3>${o ? 'Edit offense' : 'Add offense'}</h3><button class="iconbtn modal-close" type="button">×</button></div>
       <form id="offenseForm">
         <div class="modal-grid">
           <label style="grid-column:1/-1">Offense name<input name="name" required value="${esc(o?.name || '')}" placeholder="e.g. Tardiness"></label>
-          <label>Severity<select name="severity" required>${['Minor','Major','Serious'].map(v => `<option value="${v}" ${String(o?.severity||'Minor')===v?'selected':''}>${v}</option>`).join('')}</select></label>
-          <label>Status<select name="active"><option value="1" ${(o?.active ?? o?.is_active ?? 1) ? 'selected' : ''}>Active</option><option value="0" ${!(o?.active ?? o?.is_active ?? 1) ? 'selected' : ''}>Inactive</option></select></label>
+          <label${o ? '' : ' style="grid-column:1/-1"'}>Severity<select name="severity" required>${['Minor','Major','Serious'].map(v => `<option value="${v}" ${String(o?.severity||'Minor')===v?'selected':''}>${v}</option>`).join('')}</select></label>
+          ${statusField}
           <label style="grid-column:1/-1">Description<textarea name="description" placeholder="Optional description">${esc(o?.description || '')}</textarea></label>
         </div>
         <div class="actions" style="margin-top:12px;justify-content:flex-end"><button class="ghost modal-cancel" type="button">Cancel</button><button class="primary" type="submit">${o ? 'Save changes' : 'Add offense'}</button></div>
@@ -730,7 +893,7 @@ function openModal(kind, id) {
     $('#offenseForm').onsubmit = async (e) => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(e.target).entries());
-      data.active = Number(data.active);
+      data.active = data.active === undefined ? 1 : Number(data.active);
       try {
         if (o) await put('/api/offenses/' + o.id, data); else await post('/api/offenses', data);
         toast(o ? 'Offense updated.' : 'Offense added.');
